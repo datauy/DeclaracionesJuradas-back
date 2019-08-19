@@ -1,0 +1,981 @@
+<?php
+
+use Drupal\Core\Entity\EntityInterface;
+use \Drupal\Core\Database\Database;
+
+/**
+ * Implements hook_mail_alter().
+ */
+function replicate_ddjj_mail_alter(&$message) {
+  switch ($message['key']) {
+    case 'replicate_ddjj':
+      $message['headers']['Content-Type'] = 'text/html; charset=UTF-8; format=flowed; delsp=yes';
+      break;
+  }
+}
+
+
+
+function replicate_ddjj_mail($key, &$message, $params) {
+  $options = array(
+    'langcode' => $message['langcode'],
+  );
+
+  switch ($key) {
+    case 'replicate_ddjj':
+      $message['from'] = \Drupal::config('system.site')->get('mail');
+      //$message['subject'] = t('Node created: @title', array('@title' => $params['node_title']), $options);
+      $message['subject'] = $params['subject'];
+      $message['body'][] = $params['message'];
+      break;
+  }
+}
+
+
+function send_ddjj_creation_to_moderator($moderator_address,$message){
+    $mailManager = \Drupal::service('plugin.manager.mail');
+    $module = 'replicate_ddjj';
+    $key = 'replicate_ddjj';
+    //$to = \Drupal::currentUser()->getEmail();
+    $to = $moderator_address;
+    $html = "Estimado/a moderador de DDJJ:<br/>";
+    $html .= "Se ha añadido una declaración jurada pendiente de aprobación."."<br/>";
+    $html .= "Político/a: ".$message["politico"]."<br/>";
+    $html .= "Para aprobarla, diríjase a: ".$message["url"]."<br/>";
+    $params['message'] = $html;
+    $params['node_title'] = $entity->title->value;
+    $params['subject'] = "Tiene una nueva declaración jurada pendiente de aprobación";
+    $langcode = \Drupal::currentUser()->getPreferredLangcode();
+    $send = true;
+
+    $result = $mailManager->mail($module, $key, $to, $langcode, $params, NULL, $send);
+    if ($result['result'] !== true) {
+      $message = "Hubo un error al enviar la creación de ddjj a ".$moderator_address;
+      drupal_set_message($message, 'error');
+      \Drupal::logger('replicate_ddjj')->error($message);
+      return;
+    }
+
+    $message = "Se ha enviado una creación de ddjj a ".$moderator_address;
+    drupal_set_message($message);
+    \Drupal::logger('replicate_ddjj')->notice($message);
+  }
+
+  function send_ddjj_creation_user($message){
+    $mailManager = \Drupal::service('plugin.manager.mail');
+    $module = 'replicate_ddjj';
+    $key = 'replicate_ddjj';
+    $to = \Drupal::currentUser()->getEmail();
+    $html = "Estimado/a:<br/>";
+    $html .= "Ha creado con éxito una declaración jurada. Cuando un moderador la apruebe será publicada."."<br/>";
+    $html .= "Político/a: ".$message["politico"]."<br/>";
+    //$html .= "Correo electrónico: ".$message["politico_email"]."<br/>";
+    $params['message'] = $html;
+    $params['node_title'] = $entity->title->value;
+    $params['subject'] = "Declaración jurada creada con éxito";
+    $langcode = \Drupal::currentUser()->getPreferredLangcode();
+    $send = true;
+
+    $result = $mailManager->mail($module, $key, $to, $langcode, $params, NULL, $send);
+    if ($result['result'] !== true) {
+      $message = "Hubo un error al enviar mensaje de creación de ddjj a ".$to;
+      drupal_set_message($message, 'error');
+      \Drupal::logger('replicate_ddjj')->error($message);
+      return;
+    }
+
+    $message = "Se ha enviado un mensaje de creación de ddjj a ".$to;
+    drupal_set_message($message);
+    \Drupal::logger('replicate_ddjj')->notice($message);
+  }
+
+
+  /**
+  * Implements hook_ENTITY_TYPE_postinsert().
+  */
+  function replicate_ddjj_node_presave(EntityInterface $entity){
+    $bundle = $entity->bundle();
+    switch ($bundle) {
+      case 'datos_del_funcionario':
+        foreach ($entity->field_persona as $key => $value) {
+          $persona = node_load($entity->field_persona[$key]->target_id);
+          $apellidos = $persona->title->value;
+          $nombres = $persona->field_nombres->value;
+          $fecha_declaracion = $entity->field_fecha_de_la_declaracion_ju->value;
+          $fecha = explode("-",$fecha_declaracion);
+          $ano = $fecha[0];
+          $entity->title = "Declaración jurada " .$apellidos . ", " . $nombres . " - " . $ano;
+        }
+        break;
+      case 'persona':
+        $entity->title = $entity->field_apellidos->value.', '.$entity->field_nombres->value;
+        break;
+      case 'bien_inmueble':
+        $entity->title = "--Bien inmueble--";
+      break;
+      case 'cargo_publico':
+        $entity->title = "--Cargo publico--";
+      break;
+      case 'titulares_extra':
+        $entity->title = "--Titular extra--";
+      break;
+      case 'vinculos':
+        $persona = node_load($entity->field_persona[0]->target_id);
+        \Drupal::logger('replicate_ddjj')->notice("Presave Vinculo: <pre>".$persona->title->value);
+        $entity->title = $persona->title->value."-".$entity->field_vinculo->value;
+      break;
+      default:
+        // code...
+        break;
+    }
+  }
+/**
+* Implements hook_ENTITY_TYPE_postinsert().
+*/
+function replicate_ddjj_node_postinsert(EntityInterface $entity) {
+  $id = $entity->id();
+  $bundle = $entity->bundle();
+  if($bundle=="datos_del_funcionario"){
+    $node = node_load($id);
+    $state = $node->revision;
+    $message = array();
+    foreach ($entity->field_persona as $key => $value) {
+      $persona = node_load($entity->field_persona[$key]->target_id);
+      $apellidos = $persona->title->value;
+      $nombres = $persona->field_nombres->value;
+      $message['politico']= $apellidos.", ".$nombres;
+    }
+    $message['url']= "http://form.ddjj.datauy.org/node/".$id."/edit";
+    if($state==0){
+      send_ddjj_creation_to_moderator("ddjj@datauy.org",$message);
+      send_ddjj_creation_user($message);
+    }else if($state==1){
+      replicate_form_in_ddjj($entity,'insert');
+    }
+  }
+}
+
+/**
+* Implements hook_ENTITY_TYPE_postupdate().
+*/
+function replicate_ddjj_node_postupdate(EntityInterface $entity) {
+  $id = $entity->id();
+  $bundle = $entity->bundle();
+  if($bundle=="datos_del_funcionario"){
+    $node = node_load($id);
+    $state = $node->revision;
+    $message = array();
+    foreach ($entity->field_persona as $key => $value) {
+      $persona = node_load($entity->field_persona[$key]->target_id);
+      $apellidos = $persona->title->value;
+      $nombres = $persona->field_nombres->value;
+      $message['politico']= $apellidos.", ".$nombres;
+    }
+    $message['url']= "http://form.ddjj.datauy.org/node/".$id."/edit";
+    if($state==0){
+      send_ddjj_creation_to_moderator("ddjj@datauy.org",$message);
+      send_ddjj_creation_user($message);
+    }else if($state==1){
+      replicate_form_in_ddjj($entity,'insert');
+    }
+  }
+}
+
+/**
+* Implements hook_ENTITY_TYPE_postdelete().
+*/
+function replicate_ddjj_node_postdelete(EntityInterface $entity) {
+  $id = $entity->id();
+  $bundle = $entity->bundle();
+  if($bundle=="datos_del_funcionario"){
+    replicate_form_in_ddjj($entity,'delete');
+  }
+}
+
+function replicate_form_in_ddjj(EntityInterface $entity, $operation){
+  return 0;
+  $fecha_declaracion = $entity->field_fecha_de_la_declaracion_ju->value;
+  $title = $entity->title->value;
+  $cedula = null;
+  $apellidos = null;
+  $nombres = null;
+  foreach ($entity->field_persona as $key => $value) {
+    $persona = node_load($entity->field_persona[$key]->target_id);
+    $apellidos = $persona->title->value;
+    $nombres = $persona->field_nombres->value;
+    //$cedula = $persona->field_cedula_de_identidad->value;
+    $cedula = $persona->nid->value;    //Seteamos como documento en ddjj de la persona, el id de nodo de persona en form.ddjj
+  }
+  $departamento = $entity->field_1_departamento->value;
+  $localidad = $entity->field_1_localidad->value;
+  $poder = $entity->field_poder->value;
+  $organismo = $entity->field_1_organismo_inciso->value;
+  $reparticion = $entity->field_1_reparticion->value;
+  $cargo = $entity->field_1_cargo_o_funcion->value;
+  $fecha_cargo = $entity->field_1_fecha_cargo->value;
+  $declaracion_por = $entity->field_declaracion_por->value;
+  $conyugue_nombre_completo = $entity->field_conyugue_apellidos_nombres->value;
+  $url = $entity->field_url_de_declaracion_origina->value;
+
+  $persona = array (
+    'documento' => $cedula,
+    'nombre' => $nombres,
+    'apellido' => $apellidos
+  );
+  $personaId = getPersonId($persona);
+  $cargo = array (
+  'persona_id' => $personaId,
+  'cargo' => $cargo,
+  'fecha' => $fecha_cargo,
+  'jurisdiccion' => $organismo,
+  'poder' => $poder
+  );
+  $cargo_id = getCargoId($cargo);
+  $cargo['cargo_id'] = $cargo_id;
+  $jurisdiccion_id = getJurisdiccionId($organismo,$poder);
+  $cargo['jurisdiccion_id'] = $jurisdiccion_id;
+  $persona_cargo_id = getPersonaCargoId($cargo);
+  $cargo['persona_cargo_id'] = $persona_cargo_id;
+  $obs = $entity->field_observaciones->value;
+  $declaracion_id = getDeclaracionId($fecha_declaracion,$persona,$cargo,$obs,$url);
+  $contenido_declaracion_id = getContenidoDeclaracionId($fecha_declaracion,$persona,$cargo,$declaracion_id);
+
+  //Borro todos los bienes en caso de que haya alguno porque igual se crean de nuevo (para no tener que actualizar uno por uno)
+  delete_all_declaration_bienes($declaracion_id);
+
+  if($operation=='delete'){
+    deleteDeclaracion($declaracion_id);
+  }else{
+    //Sueldos líquidos funcionario
+    $tipo_bien_nombre = 'Ingresos cargo';
+    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
+    $nombre_bien_nombre = 'Sueldo líquido';
+    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
+    foreach ($entity->field_sueldos_liquidos_funcionar as $key => $value) {
+      $sueldo = node_load($entity->field_sueldos_liquidos_funcionar[$key]->target_id);
+      $sueldo_empleador = $sueldo->title->value;
+      $sueldo_monto = $sueldo->field_sueldo_monto->value;
+      $bien = array (
+      'persona_id' => $personaId,
+      'tipo_bien_id' => $tipo_bien_id,
+      'tipo_bien_s' => "'".$tipo_bien_nombre."'",
+      'nombre_bien_id' => $nombre_bien_id,
+      'nombre_bien_s' => "'".$nombre_bien_nombre."'",
+      'ddjj_id' => $declaracion_id,
+      'm_valor_fiscal_id' => "0",
+      'valor_fiscal' => $sueldo_monto,
+      'descripcion' => "'".$sueldo_empleador."'",
+      'titular_dominio' => "'Declarante'",
+      'vinculo' => "'Titular'",
+      'created_at' => "NOW()",
+      'updated_at' => "NOW()"
+      );
+      createBien($bien);
+    }
+
+
+    //Rentas funcionario
+    $tipo_bien_nombre = 'Ingresos otros';
+    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
+    $nombre_bien_nombre = 'Renta';
+    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
+    foreach ($entity->field_rentas_funcionario as $key => $value) {
+      $renta = node_load($entity->field_rentas_funcionario[$key]->target_id);
+      $renta_descripcion = $renta->title->value;
+      $renta_monto = $renta->field_monto->value;
+      $bien = array (
+        'persona_id' => $personaId,
+        'tipo_bien_id' => $tipo_bien_id,
+        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
+        'nombre_bien_id' => $nombre_bien_id,
+        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
+        'ddjj_id' => $declaracion_id,
+        'm_valor_fiscal_id' => "0",
+        'valor_fiscal' => $renta_monto,
+        'descripcion' => "'".$renta_descripcion."'",
+        'titular_dominio' => "'Declarante'",
+        'vinculo' => "'Titular'",
+        'created_at' => "NOW()",
+        'updated_at' => "NOW()"
+      );
+      createBien($bien);
+    }
+
+    //Otros ingresos funcionario
+    $tipo_bien_nombre = 'Ingresos otros';
+    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
+    $nombre_bien_nombre = 'Otros ingresos';
+    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
+    foreach ($entity->field_otros_ingresos_funcionar as $key => $value) {
+      $otro_ingreso_funcionario = node_load($entity->field_otros_ingresos_funcionar[$key]->target_id);
+      $otro_ingreso_funcionario_descripcion = $otro_ingreso_funcionario->title->value;
+      $otro_ingreso_funcionario_monto = $otro_ingreso_funcionario->field_monto_otros_ingresos->value;
+      $bien = array (
+        'persona_id' => $personaId,
+        'tipo_bien_id' => $tipo_bien_id,
+        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
+        'nombre_bien_id' => $nombre_bien_id,
+        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
+        'ddjj_id' => $declaracion_id,
+        'm_valor_fiscal_id' => "0",
+        'valor_fiscal' => $otro_ingreso_funcionario_monto,
+        'descripcion' => "'".$otro_ingreso_funcionario_descripcion."'",
+        'titular_dominio' => "'Declarante'",
+        'vinculo' => "'Titular'",
+        'created_at' => "NOW()",
+        'updated_at' => "NOW()"
+      );
+      createBien($bien);
+    }
+
+    //Sueldos líquidos conyugue
+    $tipo_bien_nombre = 'Ingresos cargo';
+    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
+    $nombre_bien_nombre = 'Sueldo líquido (cónyugue)';
+    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
+    foreach ($entity->field_sueldos_liquidos_conyugue as $key => $value) {
+      $sueldo = node_load($entity->field_sueldos_liquidos_conyugue[$key]->target_id);
+      $sueldo_empleador = $sueldo->title->value;
+      $sueldo_monto = $sueldo->field_sueldo_monto->value;
+      $bien = array (
+      'persona_id' => $personaId,
+      'tipo_bien_id' => $tipo_bien_id,
+      'tipo_bien_s' => "'".$tipo_bien_nombre."'",
+      'nombre_bien_id' => $nombre_bien_id,
+      'nombre_bien_s' => "'".$nombre_bien_nombre."'",
+      'ddjj_id' => $declaracion_id,
+      'm_valor_fiscal_id' => "0",
+      'valor_fiscal' => $sueldo_monto,
+      'descripcion' => "'".$sueldo_empleador."'",
+      'titular_dominio' => "'Cónyugue'",
+      'vinculo' => "'Cónyugue'",
+      'created_at' => "NOW()",
+      'updated_at' => "NOW()"
+      );
+      createBien($bien);
+    }
+
+
+    //Rentas conyugue
+    $tipo_bien_nombre = 'Ingresos otros';
+    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
+    $nombre_bien_nombre = 'Renta (cónyugue)';
+    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
+    foreach ($entity->field_rentas_conyugue as $key => $value) {
+      $renta = node_load($entity->field_rentas_conyugue[$key]->target_id);
+      $renta_descripcion = $renta->title->value;
+      $renta_monto = $renta->field_monto->value;
+      $bien = array (
+        'persona_id' => $personaId,
+        'tipo_bien_id' => $tipo_bien_id,
+        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
+        'nombre_bien_id' => $nombre_bien_id,
+        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
+        'ddjj_id' => $declaracion_id,
+        'm_valor_fiscal_id' => "0",
+        'valor_fiscal' => $renta_monto,
+        'descripcion' => "'".$renta_descripcion."'",
+        'titular_dominio' => "'Cónyugue'",
+        'vinculo' => "'Cónyugue'",
+        'created_at' => "NOW()",
+        'updated_at' => "NOW()"
+      );
+      createBien($bien);
+    }
+
+    //Otros ingresos conyugue
+    $tipo_bien_nombre = 'Ingresos otros';
+    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
+    $nombre_bien_nombre = 'Otros ingresos (cónyugue)';
+    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
+    foreach ($entity->field_otros_ingresos_conyugue as $key => $value) {
+      $otro_ingreso_conyugue = node_load($entity->field_otros_ingresos_conyugue[$key]->target_id);
+      $otro_ingreso_conyugue_descripcion = $otro_ingreso_conyugue->title->value;
+      $otro_ingreso_conyugue_monto = $otro_ingreso_conyugue->field_monto_otros_ingresos->value;
+      $bien = array (
+        'persona_id' => $personaId,
+        'tipo_bien_id' => $tipo_bien_id,
+        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
+        'nombre_bien_id' => $nombre_bien_id,
+        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
+        'ddjj_id' => $declaracion_id,
+        'm_valor_fiscal_id' => "0",
+        'valor_fiscal' => $otro_ingreso_conyugue_monto,
+        'descripcion' => "'".$otro_ingreso_conyugue_descripcion."'",
+        'titular_dominio' => "'Cónyugue'",
+        'vinculo' => "'Cónyugue'",
+        'created_at' => "NOW()",
+        'updated_at' => "NOW()"
+      );
+      createBien($bien);
+    }
+
+    //Depósitos
+    $tipo_bien_nombre = 'Dinero ahorros';
+    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
+    $nombre_bien_nombre = 'Depósito';
+    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
+    foreach ($entity->field_depositos as $key => $value) {
+      $deposito = node_load($entity->field_depositos[$key]->target_id);
+      $deposito_banco = $deposito->title->value;
+      $deposito_moneda = $deposito->field_moneda->value;
+      $deposito_monto = $deposito->field_monto->value;
+      $deposito_cuenta = $deposito->field_no_de_cuenta->value;
+      $deposito_propio = $deposito->field_propio_o_ganancial->value;
+      $deposito_valor = $deposito->field_valor_en_pesos_->value;
+      $bien = array (
+        'persona_id' => $personaId,
+        'tipo_bien_id' => $tipo_bien_id,
+        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
+        'nombre_bien_id' => $nombre_bien_id,
+        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
+        'ddjj_id' => $declaracion_id,
+        'm_valor_fiscal_id' => $deposito_moneda,
+        'valor_fiscal' => $deposito_valor,
+        'descripcion' => "'Banco: ".$deposito_banco."'",
+        'titular_dominio' => "'Declarante'",
+        'vinculo' => "'Titular'",
+        'created_at' => "NOW()",
+        'updated_at' => "NOW()",
+        'origen' => "'".$deposito_propio."'"
+      );
+      /*\Drupal::logger('hook_post_action_test')
+    ->info("Se crea el deposito {$deposito_banco} " . __FUNCTION__);*/
+      createBien($bien);
+    }
+
+    //Inmuebles
+    $tipo_bien_nombre = 'Bienes inmuebles';
+    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
+    $nombre_bien_nombre = 'lote';
+    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
+    foreach ($entity->field_inmuebles as $key => $value) {
+      $inmueble = node_load($entity->field_inmuebles[$key]->target_id);
+      $inmueble_padron = $inmueble->title->value;
+      $inmueble_propiedad = $inmueble->field__de_propiedad->value;
+      $inmueble_ubicacion = $inmueble->field_especie_y_ubicacion->value;
+      $inmueble_propio = $inmueble->field_propio_o_ganancial->value;
+      $inmueble_valor = $inmueble->field_valor_actual_estimado_en_p->value;
+      $bien = array (
+        'persona_id' => $personaId,
+        'tipo_bien_id' => $tipo_bien_id,
+        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
+        'nombre_bien_id' => $nombre_bien_id,
+        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
+        'ddjj_id' => $declaracion_id,
+        'm_valor_fiscal_id' => '0',
+        'porcentaje' => $inmueble_propiedad,
+        'valor_fiscal' => $inmueble_valor,
+        'descripcion' => "'Especie y ubicación: ".$inmueble_ubicacion." Padrón: ".$inmueble_padron."'",
+        'titular_dominio' => "'Declarante'",
+        'vinculo' => "'Titular'",
+        'created_at' => "NOW()",
+        'updated_at' => "NOW()",
+        'origen' => "'".$inmueble_propio."'"
+      );
+      createBien($bien);
+    }
+
+    //Vehículos
+    $tipo_bien_nombre = 'Bienes muebles';
+    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
+    $nombre_bien_nombre = 'Automotor';
+    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
+    foreach ($entity->field_vehiculos as $key => $value) {
+      $vehiculo = node_load($entity->field_vehiculos[$key]->target_id);
+      $vehiculo_marca = $vehiculo->title->value;
+      $vehiculo_propiedad = $vehiculo->field__de_propiedad->value;
+      $vehiculo_ano = $vehiculo->field_ano->value;
+      $vehiculo_matricula = $vehiculo->field_matricula->value;
+      $vehiculo_padron = $vehiculo->field_padron->value;
+      $vehiculo_propio = $vehiculo->field_propio_o_ganancial->value;
+      $vehiculo_tipo = $vehiculo->field_tipo->value;
+      $vehiculo_valor = $vehiculo->field_valor_actual_estimado_en_p->value;
+      $bien = array (
+        'persona_id' => $personaId,
+        'tipo_bien_id' => $tipo_bien_id,
+        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
+        'nombre_bien_id' => $nombre_bien_id,
+        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
+        'ddjj_id' => $declaracion_id,
+        'm_valor_fiscal_id' => '0',
+        'porcentaje' => $vehiculo_propiedad,
+        'valor_fiscal' => $vehiculo_valor,
+        'descripcion' => "'Marca: ".$vehiculo_marca." Padrón: ".$vehiculo_padron." Tipo: ".$vehiculo_tipo."'",
+        'titular_dominio' => "'Declarante'",
+        'vinculo' => "'Titular'",
+        'created_at' => "NOW()",
+        'updated_at' => "NOW()",
+        'origen' => "'".$vehiculo_propio."'"
+      );
+      createBien($bien);
+    }
+
+    //Semovientes
+    $tipo_bien_nombre = 'Bienes muebles';
+    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
+    $nombre_bien_nombre = 'cabeza_de_ganado';
+    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
+    foreach ($entity->field_semovientes as $key => $value) {
+      $semoviente = node_load($entity->field_semovientes[$key]->target_id);
+      $semoviente_tipo = $semoviente->title->value;
+      $semoviente_propiedad = $semoviente->field__de_propiedad->value;
+      $semoviente_nro_cabezas = $semoviente->field_n_de_cabezas->value;
+      $semoviente_precio_unitario = $semoviente->field_precio_unitario_->value;
+      $semoviente_propio = $semoviente->field_propio_o_ganancial->value;
+      $semoviente_valor = $semoviente->field_valor_actual_estimado_en_p->value;
+      $bien = array (
+        'persona_id' => $personaId,
+        'tipo_bien_id' => $tipo_bien_id,
+        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
+        'nombre_bien_id' => $nombre_bien_id,
+        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
+        'ddjj_id' => $declaracion_id,
+        'm_valor_fiscal_id' => '0',
+        'porcentaje' => $semoviente_propiedad,
+        'valor_fiscal' => $semoviente_valor,
+        'descripcion' => "'Nº de cabezas: ".$semoviente_nro_cabezas." Tipo: ".$semoviente_tipo."'",
+        'titular_dominio' => "'Declarante'",
+        'vinculo' => "'Titular'",
+        'created_at' => "NOW()",
+        'updated_at' => "NOW()",
+        'origen' => "'".$semoviente_propio."'"
+      );
+      createBien($bien);
+    }
+
+    //Participación en sociedades
+    $tipo_bien_nombre = 'Sociedades';
+    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
+    $nombre_bien_nombre = 'Participación en sociedad';
+    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
+    foreach ($entity->field_participacion_en_sociedade as $key => $value) {
+      $sociedad = node_load($entity->field_participacion_en_sociedade[$key]->target_id);
+      $sociedad_capital = $sociedad->field__sobre_capital->value;
+      $sociedad_clase_titulos = $sociedad->field_clase_de_titulos->value;
+      $sociedad_entidad_emisora = $sociedad->title->value;
+      $sociedad_valor_efectivo = $sociedad->field_valor_efectivo_->value;
+      $sociedad_propio = $sociedad->field_propio_o_ganancial->value;
+      $sociedad_valor_nominal = $sociedad->field_valor_nominal_->value;
+      $bien = array (
+        'persona_id' => $personaId,
+        'tipo_bien_id' => $tipo_bien_id,
+        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
+        'nombre_bien_id' => $nombre_bien_id,
+        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
+        'ddjj_id' => $declaracion_id,
+        'm_valor_fiscal_id' => '0',
+        'valor_fiscal' => $sociedad_valor_efectivo,
+        'descripcion' => "'Entidad emisora: ".$sociedad_entidad_emisora." Clase de títulos: ".$sociedad_clase_titulos."'",
+        'titular_dominio' => "'Declarante'",
+        'vinculo' => "'Titular'",
+        'created_at' => "NOW()",
+        'updated_at' => "NOW()",
+        'origen' => "'".$sociedad_propio."'"
+      );
+      createBien($bien);
+    }
+
+    //Otros bienes
+    $tipo_bien_nombre = 'Acreencias';
+    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
+    $nombre_bien_nombre = 'Otros bienes';
+    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
+    foreach ($entity->field_otros_bienes as $key => $value) {
+      $bien = node_load($entity->field_otros_bienes[$key]->target_id);
+      $bien_descripcion = $bien->title->value;
+      $bien_propio = $bien->field_propio_o_ganancial->value;
+      $bien_valor = $bien->field_valor_actual_estimado_en_p->value;
+      $bien = array (
+        'persona_id' => $personaId,
+        'tipo_bien_id' => $tipo_bien_id,
+        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
+        'nombre_bien_id' => $nombre_bien_id,
+        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
+        'ddjj_id' => $declaracion_id,
+        'm_valor_fiscal_id' => '0',
+        'valor_fiscal' => $bien_valor,
+        'descripcion' => "'".$bien_descripcion."'",
+        'titular_dominio' => "'Declarante'",
+        'vinculo' => "'Titular'",
+        'created_at' => "NOW()",
+        'updated_at' => "NOW()",
+        'origen' => "'".$bien_propio."'"
+      );
+      createBien($bien);
+    }
+
+    //Deudas hipotecarias
+    $tipo_bien_nombre = 'Deudas';
+    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
+    $nombre_bien_nombre = 'Deudas hipotecarias o prendarias';
+    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
+    foreach ($entity->field_deudas_hipotecarias_o_pren as $key => $value) {
+      $deuda = node_load($entity->field_deudas_hipotecarias_o_pren[$key]->target_id);
+      $deuda_acreedor = $deuda->title->value;
+      $deuda_bien_gravado = $deuda->field_bien_gravado->value;
+      $deuda_importe_moneda_pactada = $deuda->field_importe_moneda_pac->value;
+      $deuda_saldo_pesos = $deuda->field_saldo_en_pesos_->value;
+      $bien = array (
+        'persona_id' => $personaId,
+        'tipo_bien_id' => $tipo_bien_id,
+        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
+        'nombre_bien_id' => $nombre_bien_id,
+        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
+        'ddjj_id' => $declaracion_id,
+        'm_valor_fiscal_id' => '0',
+        'valor_fiscal' => $deuda_saldo_pesos,
+        'descripcion' => "'Acreedor: ".$deuda_acreedor."'",
+        'titular_dominio' => "'Declarante'",
+        'vinculo' => "'Titular'",
+        'created_at' => "NOW()",
+        'updated_at' => "NOW()"
+      );
+      createBien($bien);
+    }
+
+    //Deudas bancarias
+    $tipo_bien_nombre = 'Deudas';
+    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
+    $nombre_bien_nombre = 'Deudas bancarias';
+    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
+    foreach ($entity->field_deudas_bancarias as $key => $value) {
+      $deuda = node_load($entity->field_deudas_bancarias[$key]->target_id);
+      $deuda_banco = $deuda->title->value;
+      $deuda_importe_moneda_pactada = $deuda->field_importe_moneda_pac->value;
+      $deuda_saldo_pesos = $deuda->field_saldo_en_pesos_->value;
+      $bien = array (
+        'persona_id' => $personaId,
+        'tipo_bien_id' => $tipo_bien_id,
+        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
+        'nombre_bien_id' => $nombre_bien_id,
+        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
+        'ddjj_id' => $declaracion_id,
+        'm_valor_fiscal_id' => '0',
+        'valor_fiscal' => $deuda_saldo_pesos,
+        'descripcion' => "'Banco: ".$deuda_banco."'",
+        'titular_dominio' => "'Declarante'",
+        'vinculo' => "'Titular'",
+        'created_at' => "NOW()",
+        'updated_at' => "NOW()"
+      );
+      createBien($bien);
+    }
+
+    //Otras deudas
+    $tipo_bien_nombre = 'Deudas';
+    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
+    $nombre_bien_nombre = 'Otras deudas';
+    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
+    foreach ($entity->field_otras_deudas as $key => $value) {
+      $deuda = node_load($entity->field_otras_deudas[$key]->target_id);
+      $deuda_acreedor = $deuda->title->value;
+      $deuda_importe_moneda_pactada = $deuda->field_importe_moneda_pac->value;
+      $deuda_saldo_pesos = $deuda->field_saldo_en_pesos_->value;
+      $bien = array (
+        'persona_id' => $personaId,
+        'tipo_bien_id' => $tipo_bien_id,
+        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
+        'nombre_bien_id' => $nombre_bien_id,
+        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
+        'ddjj_id' => $declaracion_id,
+        'm_valor_fiscal_id' => '0',
+        'valor_fiscal' => $deuda_saldo_pesos,
+        'descripcion' => "'Acreedor: ".$deuda_acreedor."'",
+        'titular_dominio' => "'Declarante'",
+        'vinculo' => "'Titular'",
+        'created_at' => "NOW()",
+        'updated_at' => "NOW()"
+      );
+      createBien($bien);
+    }
+  }
+}
+
+//Chequea si existe la persona. Si no existe, la crea. Devuelve id de persona.
+function getPersonId($persona){
+  $id = "no encontrado";
+  if($persona['documento']){
+    $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id  FROM personas where documento = '".$persona['documento']."'");
+    foreach ($result as $record) {
+      // Do something with each $record
+      $id = $record->id;
+    }
+    if($id=="no encontrado"){
+      $insert = Database::getConnection('replicate_ddjj', 'default')->query("insert into personas (documento,nombre,apellido,created_at,updated_at) values ('".$persona['documento']."','".$persona['nombre']."','".$persona['apellido']."',NOW(),NOW())");
+      $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id  FROM personas where documento = '".$persona['documento']."'");
+      foreach ($result as $record) {
+        // Do something with each $record
+        $id = $record->id;
+      }
+    }
+  }else{
+    $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id  FROM personas where apellido = '".$persona['apellido']."' and nombre = '".$persona['nombre']."'");
+    foreach ($result as $record) {
+      // Do something with each $record
+      $id = $record->id;
+    }
+    if($id=="no encontrado"){
+      $insert = Database::getConnection('replicate_ddjj', 'default')->query("insert into personas (nombre,apellido,created_at,updated_at) values ('".$persona['nombre']."','".$persona['apellido']."',NOW(),NOW())");
+      $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id  FROM personas where apellido = '".$persona['apellido']."' and nombre = '".$persona['nombre']."'");
+      foreach ($result as $record) {
+        // Do something with each $record
+        $id = $record->id;
+      }
+    }
+  }
+
+  return $id;
+}
+
+//Chequea si existe el cargo. Si no existe, lo crea. Devuelve id de cargo.
+function getCargoId($cargo){
+  $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id FROM cargos where cargo = '".$cargo['cargo']."'
+  and jurisdiccion = '".$cargo['jurisdiccion']."' and poder_id = ".$cargo['poder']);
+  $id = "no encontrado";
+  foreach ($result as $record) {
+    // Do something with each $record
+    $id = $record->id;
+  }
+  if($id=="no encontrado"){
+    $insert = Database::getConnection('replicate_ddjj', 'default')->query("insert into cargos (poder_id,cargo,jurisdiccion,created_at,updated_at)
+    values (".$cargo['poder'].",'".$cargo['cargo']."','".$cargo['jurisdiccion']."','".$cargo['fecha']."','".$cargo['fecha']."')");
+    $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id FROM cargos where cargo = '".$cargo['cargo']."'
+    and jurisdiccion = '".$cargo['jurisdiccion']."' and poder_id = ".$cargo['poder']);
+    foreach ($result as $record) {
+      // Do something with each $record
+      $id = $record->id;
+    }
+  }
+  return $id;
+}
+
+//Chequea si existe la jurisdiccion. Si no existe, la crea. Devuelve id de jurisdiccion.
+function getJurisdiccionId($organismo,$poder_id){
+  $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id FROM jurisdiccions where nombre = '".$organismo."' and poder_id = ".$poder_id);
+  $id = "no encontrado";
+  foreach ($result as $record) {
+    // Do something with each $record
+    $id = $record->id;
+  }
+  if($id=="no encontrado"){
+    $insert = Database::getConnection('replicate_ddjj', 'default')->query("insert into jurisdiccions (poder_id,nombre,created_at,updated_at)
+    values (".$poder_id.",'".$organismo."',NOW(),NOW())");
+    $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id FROM jurisdiccions where nombre = '".$organismo."'");
+
+    foreach ($result as $record) {
+      // Do something with each $record
+      $id = $record->id;
+    }
+  }
+  return $id;
+}
+
+//Chequea si existe el cargo para la persona. Si no existe, lo crea. Devuelve id de persona_cargo.
+function getPersonaCargoId($cargo){
+  $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id FROM persona_cargos where persona_id = ".$cargo['persona_id']."
+  and cargo_id = '".$cargo['cargo_id']."'
+  and jurisdiccion_id = '".$cargo['jurisdiccion_id']."' and ingreso = '".$cargo['fecha']."'");
+  $id = "no encontrado";
+  foreach ($result as $record) {
+    // Do something with each $record
+    $id = $record->id;
+  }
+  if($id=="no encontrado"){
+    $insert = Database::getConnection('replicate_ddjj', 'default')->query("insert into persona_cargos (persona_id,cargo_id,jurisdiccion_id,ingreso,created_at,updated_at)
+    values ('".$cargo['persona_id']."','".$cargo['cargo_id']."','".$cargo['jurisdiccion_id']."','".$cargo['fecha']."','".$cargo['fecha']."','".$cargo['fecha']."')");
+    $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id FROM persona_cargos where persona_id = ".$cargo['persona_id']."
+    and cargo_id = '".$cargo['cargo_id']."'
+    and jurisdiccion_id = '".$cargo['jurisdiccion_id']."' and ingreso = '".$cargo['fecha']."'");
+    foreach ($result as $record) {
+      // Do something with each $record
+      $id = $record->id;
+    }
+  }
+  return $id;
+}
+
+
+//Chequea si existe la declaración jurada para la persona. Si no existe, la crea. Devuelve id de ddjj.
+function getDeclaracionId($fecha_declaracion,$persona,$cargo,$obs,$url){
+  $fecha = explode("-",$fecha_declaracion);
+  $ano = $fecha[0];
+  $flag_search = strtolower(str_replace(" ","-",$persona['apellido']) . "-" . str_replace(" ","-",$persona['nombre']) . "-" . $ano . "-anual");
+  $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id FROM ddjjs where persona_id = ".$cargo['persona_id']."
+  and persona_cargo_id = '".$cargo['persona_cargo_id']."'
+  and ano = ".$ano." and poder_id = ".$cargo['poder']);
+  $id = "no encontrado";
+  foreach ($result as $record) {
+    // Do something with each $record
+    $id = $record->id;
+  }
+  if($id=="no encontrado"){
+    $nombre_completo = $persona['nombre'] . " " . $persona['apellido'];
+    $insert = Database::getConnection('replicate_ddjj', 'default')->query("insert into ddjjs (poder_id,persona_id,persona_cargo_id,funcionario,ano,created_at,updated_at,status,flag_presenta,tipo_ddjj_id,flag_search,obs,url)
+    values (".$cargo['poder'].",'".$cargo['persona_id']."','".$cargo['persona_cargo_id']."','".$nombre_completo."',".$ano.",NOW(),NOW(),1,1,3,'".$flag_search."', '".$obs."','".$url."')");
+    $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id FROM ddjjs where persona_id = ".$cargo['persona_id']."
+    and persona_cargo_id = '".$cargo['persona_cargo_id']."'
+    and ano = ".$ano." and poder_id = ".$cargo['poder']);
+    foreach ($result as $record) {
+      // Do something with each $record
+      $id = $record->id;
+    }
+  }
+  return $id;
+}
+
+
+//Chequea si existe la fila en la tabla contenido_ddjjs. Si no existe, la crea. Devuelve id de contenido_ddjjs.
+function getContenidoDeclaracionId($fecha_declaracion,$persona,$cargo,$declaracion_id){
+  $fecha = explode("-",$fecha_declaracion);
+  $ano = $fecha[0];
+  $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id FROM contenido_ddjjs where persona_id = ".$cargo['persona_id']."
+  and cargo_id = '".$cargo['cargo_id']."'
+  and ddjj_ano = ".$ano." and poder_id = ".$cargo['poder']." and ddjj_id = ".$declaracion_id);
+  $id = "no encontrado";
+  foreach ($result as $record) {
+    // Do something with each $record
+    $id = $record->id;
+  }
+  if($id=="no encontrado"){
+    $nombre_completo = $persona['nombre'] . " " . $persona['apellido'];
+    $contenido = implode(" ",$persona)." ".implode(" ",$cargo);
+    $insert = Database::getConnection('replicate_ddjj', 'default')->query("insert into contenido_ddjjs (poder_id,persona_id,cargo_id,persona_str,ddjj_ano,created_at,updated_at,cargo_str,contenido,ddjj_id)
+    values (".$cargo['poder'].",'".$cargo['persona_id']."','".$cargo['cargo_id']."','".$nombre_completo."',".$ano.",NOW(),NOW(),
+    '".$cargo['cargo']."','".$contenido."',".$declaracion_id.")");
+    $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id FROM contenido_ddjjs where persona_id = ".$cargo['persona_id']."
+    and cargo_id = '".$cargo['cargo_id']."'
+    and ddjj_ano = ".$ano." and poder_id = ".$cargo['poder']." and ddjj_id = ".$declaracion_id);
+    foreach ($result as $record) {
+      // Do something with each $record
+      $id = $record->id;
+    }
+  }
+  return $id;
+}
+
+function delete_all_declaration_bienes($declaracion_id){
+  $delete = Database::getConnection('replicate_ddjj', 'default')->query("DELETE from biens where ddjj_id = " . $declaracion_id);
+}
+
+function deleteDeclaracion($declaracion_id){
+  $delete = Database::getConnection('replicate_ddjj', 'default')->query("DELETE from contenido_ddjjs where ddjj_id = " . $declaracion_id);
+  $delete = Database::getConnection('replicate_ddjj', 'default')->query("DELETE from ddjjs where id = " . $declaracion_id);
+}
+
+function getTipoBienId($nombre){
+  $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id  FROM tipo_biens where nombre = '".$nombre."'");
+  $id = "no encontrado";
+  foreach ($result as $record) {
+    // Do something with each $record
+    $id = $record->id;
+  }
+  if($id=="no encontrado"){
+    $insert = Database::getConnection('replicate_ddjj', 'default')->query("insert into tipo_biens (nombre,created_at,updated_at) values ('".$nombre."',NOW(),NOW())");
+    $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id  FROM tipo_biens where nombre = '".$nombre."'");
+    foreach ($result as $record) {
+      // Do something with each $record
+      $id = $record->id;
+    }
+  }
+  return $id;
+}
+
+function getNombreBienId($tipo_bien_id,$nombre){
+  $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id  FROM nombre_biens where nombre = '".$nombre."' and tipo_bien_id = ".$tipo_bien_id);
+  $id = "no encontrado";
+  foreach ($result as $record) {
+    // Do something with each $record
+    $id = $record->id;
+  }
+  if($id=="no encontrado"){
+    $insert = Database::getConnection('replicate_ddjj', 'default')->query("insert into nombre_biens (tipo_bien_id,nombre,created_at,updated_at) values (".$tipo_bien_id.",'".$nombre."',NOW(),NOW())");
+    $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id  FROM nombre_biens where nombre = '".$nombre."' and tipo_bien_id = ".$tipo_bien_id);
+    foreach ($result as $record) {
+      // Do something with each $record
+      $id = $record->id;
+    }
+  }
+  return $id;
+}
+
+function createBien($bien){
+  $columnNamesArray = array_keys($bien);
+  $columnNamesString = implode(",",$columnNamesArray);
+  $valuesString = implode(",",$bien);
+  $query = "INSERT into biens (" . $columnNamesString . ") values (" . $valuesString . ")";
+  $result = Database::getConnection('replicate_ddjj', 'default')->query($query);
+}
+
+
+
+function replicate_legislator_without_ddjj_in_ddjj(EntityInterface $entity, $cargoStr, $operation){
+  $bundle = $entity->bundle();
+  if($bundle=="persona"){
+    $apellidos = $entity->title->value;
+    $nombres = $entity->field_nombres->value;
+    $email = $entity->field_correo_electronico->value;
+    $cedula = $entity->id();
+    $poder = 1;
+    $organismo = "Palacio legislativo";
+    $fecha_cargo = "2016-01-01";
+    $persona = array (
+      'documento' => $cedula,
+      'nombre' => $nombres,
+      'apellido' => $apellidos,
+      'email' => $email
+    );
+    $personaId = getPersonIdWithMail($persona);
+    $cargo = array (
+      'persona_id' => $personaId,
+      'cargo' => $cargoStr,
+      'fecha' => $fecha_cargo,
+      'jurisdiccion' => $organismo,
+      'poder' => $poder
+    );
+    $cargo_id = getCargoId($cargo);
+    $cargo['cargo_id'] = $cargo_id;
+    $jurisdiccion_id = getJurisdiccionId($organismo,$poder);
+    $cargo['jurisdiccion_id'] = $jurisdiccion_id;
+    $persona_cargo_id = getPersonaCargoId($cargo);
+    $cargo['persona_cargo_id'] = $persona_cargo_id;
+    if($operation=='insert'){
+    }
+  }
+}
+
+//Chequea si existe la persona. Si no existe, la crea. Devuelve id de persona.
+function getPersonIdWithMail($persona){
+  $id = "no encontrado";
+  if($persona['documento']){
+    $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id  FROM personas where documento = '".$persona['documento']."'");
+    foreach ($result as $record) {
+      // Do something with each $record
+      $id = $record->id;
+    }
+    if($id=="no encontrado"){
+      $insert = Database::getConnection('replicate_ddjj', 'default')->query("insert into personas (documento,nombre,apellido,email,created_at,updated_at) values ('".$persona['documento']."','".$persona['nombre']."','".$persona['apellido']."','".$persona['email']."',NOW(),NOW())");
+      $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id  FROM personas where documento = '".$persona['documento']."'");
+      foreach ($result as $record) {
+        // Do something with each $record
+        $id = $record->id;
+      }
+    }
+  }else{
+    $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id  FROM personas where apellido = '".$persona['apellido']."' and nombre = '".$persona['nombre']."'");
+    foreach ($result as $record) {
+      // Do something with each $record
+      $id = $record->id;
+    }
+    if($id=="no encontrado"){
+      $insert = Database::getConnection('replicate_ddjj', 'default')->query("insert into personas (nombre,apellido,email,created_at,updated_at) values ('".$persona['nombre']."','".$persona['apellido']."','".$persona['email']."',NOW(),NOW())");
+      $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id  FROM personas where apellido = '".$persona['apellido']."' and nombre = '".$persona['nombre']."'");
+      foreach ($result as $record) {
+        // Do something with each $record
+        $id = $record->id;
+      }
+    }
+  }
+
+  return $id;
+}
