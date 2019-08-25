@@ -71,7 +71,7 @@ function send_ddjj_creation_to_moderator($moderator_address,$message){
     $html .= "Político/a: ".$message["politico"]."<br/>";
     //$html .= "Correo electrónico: ".$message["politico_email"]."<br/>";
     $params['message'] = $html;
-    $params['node_title'] = $entity->title->value;
+    $params['node_title'] = "<titulo>";
     $params['subject'] = "Declaración jurada creada con éxito";
     $langcode = \Drupal::currentUser()->getPreferredLangcode();
     $send = true;
@@ -91,21 +91,14 @@ function send_ddjj_creation_to_moderator($moderator_address,$message){
 
 
   /**
-  * Implements hook_ENTITY_TYPE_postinsert().
+  * Implements hook_ENTITY_TYPE_presave().
   */
   function replicate_ddjj_node_presave(EntityInterface $entity){
     $bundle = $entity->bundle();
     switch ($bundle) {
-      case 'datos_del_funcionario':
-        foreach ($entity->field_persona as $key => $value) {
-          $persona = node_load($entity->field_persona[$key]->target_id);
-          $apellidos = $persona->title->value;
-          $nombres = $persona->field_nombres->value;
-          $fecha_declaracion = $entity->field_fecha_de_la_declaracion_ju->value;
-          $fecha = explode("-",$fecha_declaracion);
-          $ano = $fecha[0];
-          $entity->title = "Declaración jurada " .$apellidos . ", " . $nombres . " - " . $ano;
-        }
+      case 'declaracion_jurada':
+        $persona = node_load($entity->field_persona[0]->target_id);
+        $entity->title = "Declaración jurada " . $persona->title->value . " - " . $entity->field_ano->value;
         break;
       case 'persona':
         $entity->title = $entity->field_apellidos->value.', '.$entity->field_nombres->value;
@@ -113,11 +106,17 @@ function send_ddjj_creation_to_moderator($moderator_address,$message){
       case 'bien_inmueble':
         $entity->title = "--Bien inmueble--";
       break;
+      case 'bien_mueble':
+        $entity->title = "--Bien mueble--";
+      break;
       case 'cargo_publico':
         $entity->title = "--Cargo publico--";
       break;
       case 'titulares_extra':
         $entity->title = "--Titular extra--";
+      break;
+      case 'dinero':
+        $entity->title = "--Dinero--";
       break;
       case 'vinculos':
         $persona = node_load($entity->field_persona[0]->target_id);
@@ -133,25 +132,17 @@ function send_ddjj_creation_to_moderator($moderator_address,$message){
 * Implements hook_ENTITY_TYPE_postinsert().
 */
 function replicate_ddjj_node_postinsert(EntityInterface $entity) {
-  $id = $entity->id();
   $bundle = $entity->bundle();
-  if($bundle=="datos_del_funcionario"){
+  if( $bundle == "declaracion_jurada" ){
+    $id = $entity->id();
     $node = node_load($id);
-    $state = $node->revision;
-    $message = array();
-    foreach ($entity->field_persona as $key => $value) {
-      $persona = node_load($entity->field_persona[$key]->target_id);
-      $apellidos = $persona->title->value;
-      $nombres = $persona->field_nombres->value;
-      $message['politico']= $apellidos.", ".$nombres;
-    }
-    $message['url']= "http://form.ddjj.datauy.org/node/".$id."/edit";
-    if($state==0){
-      send_ddjj_creation_to_moderator("ddjj@datauy.org",$message);
-      send_ddjj_creation_user($message);
-    }else if($state==1){
-      replicate_form_in_ddjj($entity,'insert');
-    }
+    $persona = node_load($entity->field_persona[0]->target_id);
+    $message = [
+      'politico' => $persona->title->value,
+      'url' => "http://form.ddjj.datauy.org/node/".$id."/edit",
+    ];
+    send_ddjj_creation_to_moderator("ddjj@datauy.org",$message);
+    send_ddjj_creation_user($message);
   }
 }
 
@@ -159,23 +150,12 @@ function replicate_ddjj_node_postinsert(EntityInterface $entity) {
 * Implements hook_ENTITY_TYPE_postupdate().
 */
 function replicate_ddjj_node_postupdate(EntityInterface $entity) {
-  $id = $entity->id();
+  \Drupal::logger('replicate_ddjj')->notice("POST UPDATE: <pre>".$entity->bundle());
   $bundle = $entity->bundle();
-  if($bundle=="datos_del_funcionario"){
-    $node = node_load($id);
-    $state = $node->revision;
-    $message = array();
-    foreach ($entity->field_persona as $key => $value) {
-      $persona = node_load($entity->field_persona[$key]->target_id);
-      $apellidos = $persona->title->value;
-      $nombres = $persona->field_nombres->value;
-      $message['politico']= $apellidos.", ".$nombres;
-    }
-    $message['url']= "http://form.ddjj.datauy.org/node/".$id."/edit";
-    if($state==0){
-      send_ddjj_creation_to_moderator("ddjj@datauy.org",$message);
-      send_ddjj_creation_user($message);
-    }else if($state==1){
+  if( $bundle == "declaracion_jurada" ){
+    \Drupal::logger('replicate_ddjj')->notice("POST UPDATE ES DECLApre>".$entity->bundle());
+    if( $entity->isPublished() ){
+      \Drupal::logger('replicate_ddjj')->notice("POST UPDATE PÚBLICApre>".$entity->bundle());
       replicate_form_in_ddjj($entity,'insert');
     }
   }
@@ -191,45 +171,178 @@ function replicate_ddjj_node_postdelete(EntityInterface $entity) {
     replicate_form_in_ddjj($entity,'delete');
   }
 }
-
-function replicate_form_in_ddjj(EntityInterface $entity, $operation){
-  return 0;
-  $fecha_declaracion = $entity->field_fecha_de_la_declaracion_ju->value;
-  $title = $entity->title->value;
-  $cedula = null;
-  $apellidos = null;
-  $nombres = null;
-  foreach ($entity->field_persona as $key => $value) {
-    $persona = node_load($entity->field_persona[$key]->target_id);
-    $apellidos = $persona->title->value;
-    $nombres = $persona->field_nombres->value;
-    //$cedula = $persona->field_cedula_de_identidad->value;
-    $cedula = $persona->nid->value;    //Seteamos como documento en ddjj de la persona, el id de nodo de persona en form.ddjj
+/**
+* Implements hook_ENTITY_TYPE_postdelete().
+*/
+function replicate_ddjj_inline_entity_form_entity_form_alter(&$entity_form, &$form_state) {
+  if ( $entity_form['#entity_type'] == 'node') {
+    if ( $entity_form['#bundle'] == 'persona') {
+      \Drupal::logger('replicate_ddjj')->notice( "PERSONA FORM: <pre>".print_r($entity_form['#parents'], TRUE) );
+      //No es primera persona
+      if (count($entity_form['#parents']) > 3 ) {
+        \Drupal::logger('replicate_ddjj')->notice( "PERSONA con PADRES: <pre>".print_r($entity_form['#parents'], TRUE) );
+        $entity_form['field_actividades_privadas_profe']['widget']['0']['value']['#access'] = 0;
+        $entity_form['field_cargo_publico']['widget']['0']['value']['#access'] = 0;
+        $entity_form['field_estado_civil']['widget']['0']['value']['#access'] = 0;
+        $entity_form['field_facebook']['widget']['0']['value']['#access'] = 0;
+        $entity_form['field_familia']['widget']['0']['value']['#access'] = 0;
+        $entity_form['field_pais']['widget']['0']['value']['#access'] = 0;
+        $entity_form['field_postulaciones_a_cargos']['widget']['0']['value']['#access'] = 0;
+        $entity_form['field_profesion']['widget']['0']['value']['#access'] = 0;
+        $entity_form['field_sitio_oficial']['widget']['0']['value']['#access'] = 0;
+        $entity_form['field_twitter']['widget']['0']['value']['#access'] = 0;
+        $callBack = [
+          'callback' => 'replicate_ddjj_form_ajax_inline_ajax', // don't forget :: when calling a class method.
+          'disable-refocus' => TRUE, //Prevent re-focusing on the triggering element.
+          'event' => 'change',
+          'wrapper' => 'edit-title-main-wrapper-inline-'.$entity_form['#bundle'], // This element is updated with this AJAX callback.
+          'progress' => [
+            'type' => 'throbber',
+            'message' => t('Asignando nombre...'),
+          ],
+        ];
+        $entity_form['field_apellidos']['widget']['0']['value']['#ajax'] = $callBack;
+        $entity_form['field_nombres']['widget']['0']['value']['#ajax'] = $callBack;
+        $entity_form['title']['#disabled'] = TRUE;
+        $entity_form['title']['#prefix'] = '<div id="edit-title-main-wrapper-inline'.$entity_form['#bundle'].'">';
+        $entity_form['title']['#suffix'] = '</div>';
+      }
+      else {
+        replicate_ddjj_form_alter($entity_form, $form_state, 'node_persona_form_ajax');
+      }
+    }
+    elseif ( $entity_form['#bundle'] == 'cargo_publico') {
+      \Drupal::logger('replicate_ddjj')->notice( "CARGO INLINE: <pre>" );
+      $entity_form['actions']['submit']['#submit'][] = 'replicate_ddjj_assign_title';
+      $submit_handlers = $form_state->getSubmitHandlers();
+      $submit_handlers[] = 'replicate_ddjj_assign_title';
+      $form_state->setSubmitHandlers($submit_handlers);
+    }
   }
-  $departamento = $entity->field_1_departamento->value;
-  $localidad = $entity->field_1_localidad->value;
-  $poder = $entity->field_poder->value;
-  $organismo = $entity->field_1_organismo_inciso->value;
-  $reparticion = $entity->field_1_reparticion->value;
-  $cargo = $entity->field_1_cargo_o_funcion->value;
-  $fecha_cargo = $entity->field_1_fecha_cargo->value;
-  $declaracion_por = $entity->field_declaracion_por->value;
-  $conyugue_nombre_completo = $entity->field_conyugue_apellidos_nombres->value;
-  $url = $entity->field_url_de_declaracion_origina->value;
+}
+function replicate_ddjj_assign_title($form, \Drupal\Core\Form\FormStateInterface $form_state) {
+  \Drupal::logger('replicate_ddjj')->notice( "CUSTOM SUBMIT CARGO INLINE: <pre>" );
+  $node = $form_state->getFormObject()->getEntity();
+  $node->setTitle('Custom Title - ' . $node->id());
+  $node->save();
+}
+/**
+* Implements hook_form_alter().
+*/
+function replicate_ddjj_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id) {
+  if ( $form_id == 'node_persona_form' || $form_id == 'node_persona_form_ajax' ) {
+    $callBack = [
+      'callback' => 'replicate_ddjj_form_ajax', // don't forget :: when calling a class method.
+      'disable-refocus' => TRUE, //Prevent re-focusing on the triggering element.
+      'event' => 'change',
+      'wrapper' => 'edit-title-main-wrapper', // This element is updated with this AJAX callback.
+      'progress' => [
+        'type' => 'throbber',
+        'message' => t('Asignando nombre...'),
+      ],
+    ];
+    if ( $form_id == 'node_persona_form_ajax' ) {
+      $callBack['callback'] = 'replicate_ddjj_form_ajax_inline';
+      //$callBack['wrapper'] = 'edit-field-persona-form-inline-entity-form-title-wrapper';
+    }
+    $form['field_apellidos']['widget']['0']['value']['#ajax'] = $callBack;
+    $form['field_nombres']['widget']['0']['value']['#ajax'] = $callBack;
+    $form['title']['#disabled'] = TRUE;
+    $form['title']['#prefix'] = '<div id="edit-title-main-wrapper">';
+    $form['title']['#suffix'] = '</div>';
+  }
+}
+/**
+* Implements hook_form_alter().
+*/
+function replicate_ddjj_form_ajax(&$form, \Drupal\Core\Form\FormStateInterface $form_state) {
+  $form['title']['widget']['0']['value']['#value'] = "";
+  $apellidos = $form_state->getValue('field_apellidos')['0']['value'];
+  $nombres = $form_state->getValue('field_nombres')['0']['value'];
+  if ( !empty($apellidos) ) {
+    $form['title']['widget']['0']['value']['#value'] = $apellidos;
+  }
+  if ( !empty($nombres) ) {
+    $form['title']['widget']['0']['value']['#value'] .= ", ".$nombres;
+  }
+  return $form['title'];
+}
+/**
+* Implements hook_form_alter().
+*/
+function replicate_ddjj_form_ajax_inline(&$form, \Drupal\Core\Form\FormStateInterface $form_state) {
+  $form['field_persona']['widget']['form']['inline_entity_form']['title']['widget']['0']['value']['#value'] = "";
+  $values = $form_state->getUserInput()['field_persona']['form']['inline_entity_form'];
+  $apellidos = $values['field_apellidos']['0']['value'];
+  $nombres = $values['field_nombres']['0']['value'];
+  if ( !empty($apellidos) ) {
+    $form['field_persona']['widget']['form']['inline_entity_form']['title']['widget']['0']['value']['#value'] = $apellidos;
+  }
+  if ( !empty($nombres) ) {
+    $form['field_persona']['widget']['form']['inline_entity_form']['title']['widget']['0']['value']['#value'] .= ", ".$nombres;
+  }
+  return $form['field_persona']['widget']['form']['inline_entity_form']['title'];
+}
+/**
+* Implements hook_form_alter().
+*/
+function replicate_ddjj_form_ajax_inline_ajax(&$form, \Drupal\Core\Form\FormStateInterface $form_state) {
+  $form['field_persona']['widget']['form']['inline_entity_form']['title']['widget']['0']['value']['#value'] = "";
+  $values = $form_state->getUserInput()['field_persona']['form']['inline_entity_form'];
+  $apellidos = $values['field_apellidos']['0']['value'];
+  $nombres = $values['field_nombres']['0']['value'];
+  if ( !empty($apellidos) ) {
+    $form['field_persona']['widget']['form']['inline_entity_form']['title']['widget']['0']['value']['#value'] = $apellidos;
+  }
+  if ( !empty($nombres) ) {
+    $form['field_persona']['widget']['form']['inline_entity_form']['title']['widget']['0']['value']['#value'] .= ", ".$nombres;
+  }
+  return $form['field_persona']['widget']['form']['inline_entity_form']['title'];
+}
+/**
+* Implements hook_form_alter().
+*/
+function replicate_form_in_ddjj(EntityInterface $entity, $operation){
+  \Drupal::logger('replicate_ddjj')->notice( "DDJJ REPLICATE: <pre>".print_r($entity->field_persona, TRUE) );
+  //$tipos_inmuebles = $entity->field_tipo_bien_inmueble->getSetting('allowed_values');
+  $fecha_declaracion = $entity->field_ano->value;
+  $title = $entity->title->value;
+  //foreach ($entity->field_persona as $key => $value) {
+  $persona = node_load($entity->field_persona[0]->target_id);
+  $apellidos = $persona->field_apellidos->value;
+  $nombres = $persona->field_nombres->value;
+  //$cedula = $persona->field_cedula_de_identidad->value;
+  $cedula = $persona->nid->value;    //Seteamos como documento en ddjj de la persona, el id de nodo de persona en form.ddjj
+  //}
+  //$departamento = $entity->field_1_departamento->value;
+  //$localidad = $entity->field_1_localidad->value;
 
+  $cargo_id = $entity->field_cargos_publicos[0]->target_id;
+  //$poder = $entity->field_poder->value;
+  //$organismo = $entity->field_1_organismo_inciso->value;
+  //$fecha_cargo = $entity->field_1_fecha_cargo->value;
+
+  //$declaracion_por = $entity->field_declaracion_por->value;
+  //$conyugue_nombre_completo = $entity->field_conyugue_apellidos_nombres->value;
+  $url = $entity->field_url_declaracion->value;
+  print "\n\nPersona:\n";
   $persona = array (
     'documento' => $cedula,
     'nombre' => $nombres,
     'apellido' => $apellidos
   );
-  $personaId = getPersonId($persona);
+  print_r($persona);
+  //$personaId = getPersonId($persona);
   $cargo = array (
-  'persona_id' => $personaId,
+  //'persona_id' => $personaId,
   'cargo' => $cargo,
   'fecha' => $fecha_cargo,
   'jurisdiccion' => $organismo,
   'poder' => $poder
   );
+  print "\n\nCargo:\n";
+  print_r($cargo);
+  return 0;
   $cargo_id = getCargoId($cargo);
   $cargo['cargo_id'] = $cargo_id;
   $jurisdiccion_id = getJurisdiccionId($organismo,$poder);
@@ -246,6 +359,72 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
   if($operation=='delete'){
     deleteDeclaracion($declaracion_id);
   }else{
+    //Inmuebles
+    $tipo_bien_nombre = 'Bienes inmuebles';
+    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
+    $nombre_bien_nombre = 'lote';
+    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
+    foreach ($entity->field_bienes_inmuebles as $key => $value) {
+      $inmueble = node_load($entity->field_inmuebles[$key]->target_id);
+      $inmueble_padron = $inmueble->title->value;
+      $inmueble_propiedad = $inmueble->field__de_propiedad->value;
+      $inmueble_ubicacion = $inmueble->field_especie_y_ubicacion->value;
+      $inmueble_propio = $inmueble->field_propio_o_ganancial->value;
+      $inmueble_valor = $inmueble->field_valor_actual_estimado_en_p->value;
+      $bien = array (
+        'persona_id' => $personaId,
+        'tipo_bien_id' => $tipo_bien_id,
+        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
+        'nombre_bien_id' => $nombre_bien_id,
+        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
+        'ddjj_id' => $declaracion_id,
+        'm_valor_fiscal_id' => '0',
+        'porcentaje' => $inmueble_propiedad,
+        'valor_fiscal' => $inmueble_valor,
+        'descripcion' => "'Especie y ubicación: ".$inmueble_ubicacion." Padrón: ".$inmueble_padron."'",
+        'titular_dominio' => "'Declarante'",
+        'vinculo' => "'Titular'",
+        'created_at' => "NOW()",
+        'updated_at' => "NOW()",
+        'origen' => "'".$inmueble_propio."'"
+      );
+      createBien($bien);
+    }
+
+    //Vehículos
+    $tipo_bien_nombre = 'Bienes muebles';
+    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
+    $nombre_bien_nombre = 'Automotor';
+    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
+    foreach ($entity->field_vehiculos as $key => $value) {
+      $vehiculo = node_load($entity->field_vehiculos[$key]->target_id);
+      $vehiculo_marca = $vehiculo->title->value;
+      $vehiculo_propiedad = $vehiculo->field__de_propiedad->value;
+      $vehiculo_ano = $vehiculo->field_ano->value;
+      $vehiculo_matricula = $vehiculo->field_matricula->value;
+      $vehiculo_padron = $vehiculo->field_padron->value;
+      $vehiculo_propio = $vehiculo->field_propio_o_ganancial->value;
+      $vehiculo_tipo = $vehiculo->field_tipo->value;
+      $vehiculo_valor = $vehiculo->field_valor_actual_estimado_en_p->value;
+      $bien = array (
+        'persona_id' => $personaId,
+        'tipo_bien_id' => $tipo_bien_id,
+        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
+        'nombre_bien_id' => $nombre_bien_id,
+        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
+        'ddjj_id' => $declaracion_id,
+        'm_valor_fiscal_id' => '0',
+        'porcentaje' => $vehiculo_propiedad,
+        'valor_fiscal' => $vehiculo_valor,
+        'descripcion' => "'Marca: ".$vehiculo_marca." Padrón: ".$vehiculo_padron." Tipo: ".$vehiculo_tipo."'",
+        'titular_dominio' => "'Declarante'",
+        'vinculo' => "'Titular'",
+        'created_at' => "NOW()",
+        'updated_at' => "NOW()",
+        'origen' => "'".$vehiculo_propio."'"
+        );
+        createBien($bien);
+      }
     //Sueldos líquidos funcionario
     $tipo_bien_nombre = 'Ingresos cargo';
     $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
@@ -269,61 +448,6 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
       'vinculo' => "'Titular'",
       'created_at' => "NOW()",
       'updated_at' => "NOW()"
-      );
-      createBien($bien);
-    }
-
-
-    //Rentas funcionario
-    $tipo_bien_nombre = 'Ingresos otros';
-    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
-    $nombre_bien_nombre = 'Renta';
-    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
-    foreach ($entity->field_rentas_funcionario as $key => $value) {
-      $renta = node_load($entity->field_rentas_funcionario[$key]->target_id);
-      $renta_descripcion = $renta->title->value;
-      $renta_monto = $renta->field_monto->value;
-      $bien = array (
-        'persona_id' => $personaId,
-        'tipo_bien_id' => $tipo_bien_id,
-        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
-        'nombre_bien_id' => $nombre_bien_id,
-        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
-        'ddjj_id' => $declaracion_id,
-        'm_valor_fiscal_id' => "0",
-        'valor_fiscal' => $renta_monto,
-        'descripcion' => "'".$renta_descripcion."'",
-        'titular_dominio' => "'Declarante'",
-        'vinculo' => "'Titular'",
-        'created_at' => "NOW()",
-        'updated_at' => "NOW()"
-      );
-      createBien($bien);
-    }
-
-    //Otros ingresos funcionario
-    $tipo_bien_nombre = 'Ingresos otros';
-    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
-    $nombre_bien_nombre = 'Otros ingresos';
-    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
-    foreach ($entity->field_otros_ingresos_funcionar as $key => $value) {
-      $otro_ingreso_funcionario = node_load($entity->field_otros_ingresos_funcionar[$key]->target_id);
-      $otro_ingreso_funcionario_descripcion = $otro_ingreso_funcionario->title->value;
-      $otro_ingreso_funcionario_monto = $otro_ingreso_funcionario->field_monto_otros_ingresos->value;
-      $bien = array (
-        'persona_id' => $personaId,
-        'tipo_bien_id' => $tipo_bien_id,
-        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
-        'nombre_bien_id' => $nombre_bien_id,
-        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
-        'ddjj_id' => $declaracion_id,
-        'm_valor_fiscal_id' => "0",
-        'valor_fiscal' => $otro_ingreso_funcionario_monto,
-        'descripcion' => "'".$otro_ingreso_funcionario_descripcion."'",
-        'titular_dominio' => "'Declarante'",
-        'vinculo' => "'Titular'",
-        'created_at' => "NOW()",
-        'updated_at' => "NOW()"
       );
       createBien($bien);
     }
@@ -383,33 +507,6 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
       createBien($bien);
     }
 
-    //Otros ingresos conyugue
-    $tipo_bien_nombre = 'Ingresos otros';
-    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
-    $nombre_bien_nombre = 'Otros ingresos (cónyugue)';
-    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
-    foreach ($entity->field_otros_ingresos_conyugue as $key => $value) {
-      $otro_ingreso_conyugue = node_load($entity->field_otros_ingresos_conyugue[$key]->target_id);
-      $otro_ingreso_conyugue_descripcion = $otro_ingreso_conyugue->title->value;
-      $otro_ingreso_conyugue_monto = $otro_ingreso_conyugue->field_monto_otros_ingresos->value;
-      $bien = array (
-        'persona_id' => $personaId,
-        'tipo_bien_id' => $tipo_bien_id,
-        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
-        'nombre_bien_id' => $nombre_bien_id,
-        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
-        'ddjj_id' => $declaracion_id,
-        'm_valor_fiscal_id' => "0",
-        'valor_fiscal' => $otro_ingreso_conyugue_monto,
-        'descripcion' => "'".$otro_ingreso_conyugue_descripcion."'",
-        'titular_dominio' => "'Cónyugue'",
-        'vinculo' => "'Cónyugue'",
-        'created_at' => "NOW()",
-        'updated_at' => "NOW()"
-      );
-      createBien($bien);
-    }
-
     //Depósitos
     $tipo_bien_nombre = 'Dinero ahorros';
     $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
@@ -444,166 +541,6 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
       createBien($bien);
     }
 
-    //Inmuebles
-    $tipo_bien_nombre = 'Bienes inmuebles';
-    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
-    $nombre_bien_nombre = 'lote';
-    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
-    foreach ($entity->field_inmuebles as $key => $value) {
-      $inmueble = node_load($entity->field_inmuebles[$key]->target_id);
-      $inmueble_padron = $inmueble->title->value;
-      $inmueble_propiedad = $inmueble->field__de_propiedad->value;
-      $inmueble_ubicacion = $inmueble->field_especie_y_ubicacion->value;
-      $inmueble_propio = $inmueble->field_propio_o_ganancial->value;
-      $inmueble_valor = $inmueble->field_valor_actual_estimado_en_p->value;
-      $bien = array (
-        'persona_id' => $personaId,
-        'tipo_bien_id' => $tipo_bien_id,
-        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
-        'nombre_bien_id' => $nombre_bien_id,
-        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
-        'ddjj_id' => $declaracion_id,
-        'm_valor_fiscal_id' => '0',
-        'porcentaje' => $inmueble_propiedad,
-        'valor_fiscal' => $inmueble_valor,
-        'descripcion' => "'Especie y ubicación: ".$inmueble_ubicacion." Padrón: ".$inmueble_padron."'",
-        'titular_dominio' => "'Declarante'",
-        'vinculo' => "'Titular'",
-        'created_at' => "NOW()",
-        'updated_at' => "NOW()",
-        'origen' => "'".$inmueble_propio."'"
-      );
-      createBien($bien);
-    }
-
-    //Vehículos
-    $tipo_bien_nombre = 'Bienes muebles';
-    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
-    $nombre_bien_nombre = 'Automotor';
-    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
-    foreach ($entity->field_vehiculos as $key => $value) {
-      $vehiculo = node_load($entity->field_vehiculos[$key]->target_id);
-      $vehiculo_marca = $vehiculo->title->value;
-      $vehiculo_propiedad = $vehiculo->field__de_propiedad->value;
-      $vehiculo_ano = $vehiculo->field_ano->value;
-      $vehiculo_matricula = $vehiculo->field_matricula->value;
-      $vehiculo_padron = $vehiculo->field_padron->value;
-      $vehiculo_propio = $vehiculo->field_propio_o_ganancial->value;
-      $vehiculo_tipo = $vehiculo->field_tipo->value;
-      $vehiculo_valor = $vehiculo->field_valor_actual_estimado_en_p->value;
-      $bien = array (
-        'persona_id' => $personaId,
-        'tipo_bien_id' => $tipo_bien_id,
-        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
-        'nombre_bien_id' => $nombre_bien_id,
-        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
-        'ddjj_id' => $declaracion_id,
-        'm_valor_fiscal_id' => '0',
-        'porcentaje' => $vehiculo_propiedad,
-        'valor_fiscal' => $vehiculo_valor,
-        'descripcion' => "'Marca: ".$vehiculo_marca." Padrón: ".$vehiculo_padron." Tipo: ".$vehiculo_tipo."'",
-        'titular_dominio' => "'Declarante'",
-        'vinculo' => "'Titular'",
-        'created_at' => "NOW()",
-        'updated_at' => "NOW()",
-        'origen' => "'".$vehiculo_propio."'"
-      );
-      createBien($bien);
-    }
-
-    //Semovientes
-    $tipo_bien_nombre = 'Bienes muebles';
-    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
-    $nombre_bien_nombre = 'cabeza_de_ganado';
-    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
-    foreach ($entity->field_semovientes as $key => $value) {
-      $semoviente = node_load($entity->field_semovientes[$key]->target_id);
-      $semoviente_tipo = $semoviente->title->value;
-      $semoviente_propiedad = $semoviente->field__de_propiedad->value;
-      $semoviente_nro_cabezas = $semoviente->field_n_de_cabezas->value;
-      $semoviente_precio_unitario = $semoviente->field_precio_unitario_->value;
-      $semoviente_propio = $semoviente->field_propio_o_ganancial->value;
-      $semoviente_valor = $semoviente->field_valor_actual_estimado_en_p->value;
-      $bien = array (
-        'persona_id' => $personaId,
-        'tipo_bien_id' => $tipo_bien_id,
-        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
-        'nombre_bien_id' => $nombre_bien_id,
-        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
-        'ddjj_id' => $declaracion_id,
-        'm_valor_fiscal_id' => '0',
-        'porcentaje' => $semoviente_propiedad,
-        'valor_fiscal' => $semoviente_valor,
-        'descripcion' => "'Nº de cabezas: ".$semoviente_nro_cabezas." Tipo: ".$semoviente_tipo."'",
-        'titular_dominio' => "'Declarante'",
-        'vinculo' => "'Titular'",
-        'created_at' => "NOW()",
-        'updated_at' => "NOW()",
-        'origen' => "'".$semoviente_propio."'"
-      );
-      createBien($bien);
-    }
-
-    //Participación en sociedades
-    $tipo_bien_nombre = 'Sociedades';
-    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
-    $nombre_bien_nombre = 'Participación en sociedad';
-    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
-    foreach ($entity->field_participacion_en_sociedade as $key => $value) {
-      $sociedad = node_load($entity->field_participacion_en_sociedade[$key]->target_id);
-      $sociedad_capital = $sociedad->field__sobre_capital->value;
-      $sociedad_clase_titulos = $sociedad->field_clase_de_titulos->value;
-      $sociedad_entidad_emisora = $sociedad->title->value;
-      $sociedad_valor_efectivo = $sociedad->field_valor_efectivo_->value;
-      $sociedad_propio = $sociedad->field_propio_o_ganancial->value;
-      $sociedad_valor_nominal = $sociedad->field_valor_nominal_->value;
-      $bien = array (
-        'persona_id' => $personaId,
-        'tipo_bien_id' => $tipo_bien_id,
-        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
-        'nombre_bien_id' => $nombre_bien_id,
-        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
-        'ddjj_id' => $declaracion_id,
-        'm_valor_fiscal_id' => '0',
-        'valor_fiscal' => $sociedad_valor_efectivo,
-        'descripcion' => "'Entidad emisora: ".$sociedad_entidad_emisora." Clase de títulos: ".$sociedad_clase_titulos."'",
-        'titular_dominio' => "'Declarante'",
-        'vinculo' => "'Titular'",
-        'created_at' => "NOW()",
-        'updated_at' => "NOW()",
-        'origen' => "'".$sociedad_propio."'"
-      );
-      createBien($bien);
-    }
-
-    //Otros bienes
-    $tipo_bien_nombre = 'Acreencias';
-    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
-    $nombre_bien_nombre = 'Otros bienes';
-    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
-    foreach ($entity->field_otros_bienes as $key => $value) {
-      $bien = node_load($entity->field_otros_bienes[$key]->target_id);
-      $bien_descripcion = $bien->title->value;
-      $bien_propio = $bien->field_propio_o_ganancial->value;
-      $bien_valor = $bien->field_valor_actual_estimado_en_p->value;
-      $bien = array (
-        'persona_id' => $personaId,
-        'tipo_bien_id' => $tipo_bien_id,
-        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
-        'nombre_bien_id' => $nombre_bien_id,
-        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
-        'ddjj_id' => $declaracion_id,
-        'm_valor_fiscal_id' => '0',
-        'valor_fiscal' => $bien_valor,
-        'descripcion' => "'".$bien_descripcion."'",
-        'titular_dominio' => "'Declarante'",
-        'vinculo' => "'Titular'",
-        'created_at' => "NOW()",
-        'updated_at' => "NOW()",
-        'origen' => "'".$bien_propio."'"
-      );
-      createBien($bien);
-    }
 
     //Deudas hipotecarias
     $tipo_bien_nombre = 'Deudas';
@@ -614,62 +551,6 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
       $deuda = node_load($entity->field_deudas_hipotecarias_o_pren[$key]->target_id);
       $deuda_acreedor = $deuda->title->value;
       $deuda_bien_gravado = $deuda->field_bien_gravado->value;
-      $deuda_importe_moneda_pactada = $deuda->field_importe_moneda_pac->value;
-      $deuda_saldo_pesos = $deuda->field_saldo_en_pesos_->value;
-      $bien = array (
-        'persona_id' => $personaId,
-        'tipo_bien_id' => $tipo_bien_id,
-        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
-        'nombre_bien_id' => $nombre_bien_id,
-        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
-        'ddjj_id' => $declaracion_id,
-        'm_valor_fiscal_id' => '0',
-        'valor_fiscal' => $deuda_saldo_pesos,
-        'descripcion' => "'Acreedor: ".$deuda_acreedor."'",
-        'titular_dominio' => "'Declarante'",
-        'vinculo' => "'Titular'",
-        'created_at' => "NOW()",
-        'updated_at' => "NOW()"
-      );
-      createBien($bien);
-    }
-
-    //Deudas bancarias
-    $tipo_bien_nombre = 'Deudas';
-    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
-    $nombre_bien_nombre = 'Deudas bancarias';
-    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
-    foreach ($entity->field_deudas_bancarias as $key => $value) {
-      $deuda = node_load($entity->field_deudas_bancarias[$key]->target_id);
-      $deuda_banco = $deuda->title->value;
-      $deuda_importe_moneda_pactada = $deuda->field_importe_moneda_pac->value;
-      $deuda_saldo_pesos = $deuda->field_saldo_en_pesos_->value;
-      $bien = array (
-        'persona_id' => $personaId,
-        'tipo_bien_id' => $tipo_bien_id,
-        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
-        'nombre_bien_id' => $nombre_bien_id,
-        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
-        'ddjj_id' => $declaracion_id,
-        'm_valor_fiscal_id' => '0',
-        'valor_fiscal' => $deuda_saldo_pesos,
-        'descripcion' => "'Banco: ".$deuda_banco."'",
-        'titular_dominio' => "'Declarante'",
-        'vinculo' => "'Titular'",
-        'created_at' => "NOW()",
-        'updated_at' => "NOW()"
-      );
-      createBien($bien);
-    }
-
-    //Otras deudas
-    $tipo_bien_nombre = 'Deudas';
-    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
-    $nombre_bien_nombre = 'Otras deudas';
-    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
-    foreach ($entity->field_otras_deudas as $key => $value) {
-      $deuda = node_load($entity->field_otras_deudas[$key]->target_id);
-      $deuda_acreedor = $deuda->title->value;
       $deuda_importe_moneda_pactada = $deuda->field_importe_moneda_pac->value;
       $deuda_saldo_pesos = $deuda->field_saldo_en_pesos_->value;
       $bien = array (
@@ -798,8 +679,8 @@ function getPersonaCargoId($cargo){
 
 //Chequea si existe la declaración jurada para la persona. Si no existe, la crea. Devuelve id de ddjj.
 function getDeclaracionId($fecha_declaracion,$persona,$cargo,$obs,$url){
-  $fecha = explode("-",$fecha_declaracion);
-  $ano = $fecha[0];
+  //$fecha = explode("-",$fecha_declaracion);
+  $ano = $fecha_declaracion;//$fecha[0];
   $flag_search = strtolower(str_replace(" ","-",$persona['apellido']) . "-" . str_replace(" ","-",$persona['nombre']) . "-" . $ano . "-anual");
   $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id FROM ddjjs where persona_id = ".$cargo['persona_id']."
   and persona_cargo_id = '".$cargo['persona_cargo_id']."'
@@ -827,8 +708,8 @@ function getDeclaracionId($fecha_declaracion,$persona,$cargo,$obs,$url){
 
 //Chequea si existe la fila en la tabla contenido_ddjjs. Si no existe, la crea. Devuelve id de contenido_ddjjs.
 function getContenidoDeclaracionId($fecha_declaracion,$persona,$cargo,$declaracion_id){
-  $fecha = explode("-",$fecha_declaracion);
-  $ano = $fecha[0];
+  //$fecha = explode("-",$fecha_declaracion);
+  $ano = $fecha_declaracion;//$fecha[0];
   $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id FROM contenido_ddjjs where persona_id = ".$cargo['persona_id']."
   and cargo_id = '".$cargo['cargo_id']."'
   and ddjj_ano = ".$ano." and poder_id = ".$cargo['poder']." and ddjj_id = ".$declaracion_id);
@@ -863,6 +744,17 @@ function deleteDeclaracion($declaracion_id){
   $delete = Database::getConnection('replicate_ddjj', 'default')->query("DELETE from ddjjs where id = " . $declaracion_id);
 }
 
+/*
+Bienes inmuebles
+Bienes muebles
+Ingresos cargo
+Ingresos otros
+Deudas
+Dinero ahorros
+Sociedades
+Acreencias
+Títulos y fondos y deudas
+*/
 function getTipoBienId($nombre){
   $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id  FROM tipo_biens where nombre = '".$nombre."'");
   $id = "no encontrado";
