@@ -2,6 +2,7 @@
 
 use Drupal\Core\Entity\EntityInterface;
 use \Drupal\Core\Database\Database;
+use Drupal\taxonomy\Entity\Term;
 
 /**
  * Implements hook_mail_alter().
@@ -43,7 +44,7 @@ function send_ddjj_creation_to_moderator($moderator_address,$message){
     $html .= "Político/a: ".$message["politico"]."<br/>";
     $html .= "Para aprobarla, diríjase a: ".$message["url"]."<br/>";
     $params['message'] = $html;
-    $params['node_title'] = $entity->title->value;
+    $params['node_title'] = "<Título>";
     $params['subject'] = "Tiene una nueva declaración jurada pendiente de aprobación";
     $langcode = \Drupal::currentUser()->getPreferredLangcode();
     $send = true;
@@ -103,7 +104,7 @@ function send_ddjj_creation_to_moderator($moderator_address,$message){
       case 'persona':
         $entity->title = $entity->field_apellidos->value.', '.$entity->field_nombres->value;
         break;
-      case 'bien_inmueble':
+      /*case 'bien_inmueble':
         $entity->title = "--Bien inmueble--";
       break;
       case 'bien_mueble':
@@ -117,7 +118,7 @@ function send_ddjj_creation_to_moderator($moderator_address,$message){
       break;
       case 'dinero':
         $entity->title = "--Dinero--";
-      break;
+      break;*/
       case 'vinculos':
         $persona = node_load($entity->field_persona[0]->target_id);
         \Drupal::logger('replicate_ddjj')->notice("Presave Vinculo: <pre>".$persona->title->value);
@@ -150,12 +151,9 @@ function replicate_ddjj_node_postinsert(EntityInterface $entity) {
 * Implements hook_ENTITY_TYPE_postupdate().
 */
 function replicate_ddjj_node_postupdate(EntityInterface $entity) {
-  \Drupal::logger('replicate_ddjj')->notice("POST UPDATE: <pre>".$entity->bundle());
   $bundle = $entity->bundle();
   if( $bundle == "declaracion_jurada" ){
-    \Drupal::logger('replicate_ddjj')->notice("POST UPDATE ES DECLApre>".$entity->bundle());
     if( $entity->isPublished() ){
-      \Drupal::logger('replicate_ddjj')->notice("POST UPDATE PÚBLICApre>".$entity->bundle());
       replicate_form_in_ddjj($entity,'insert');
     }
   }
@@ -176,80 +174,99 @@ function replicate_ddjj_node_postdelete(EntityInterface $entity) {
 */
 function replicate_ddjj_inline_entity_form_entity_form_alter(&$entity_form, &$form_state) {
   if ( $entity_form['#entity_type'] == 'node') {
-    if ( $entity_form['#bundle'] == 'persona') {
-      \Drupal::logger('replicate_ddjj')->notice( "PERSONA FORM: <pre>".print_r($entity_form['#parents'], TRUE) );
-      //No es primera persona
-      if (count($entity_form['#parents']) > 3 ) {
-        \Drupal::logger('replicate_ddjj')->notice( "PERSONA con PADRES: <pre>".print_r($entity_form['#parents'], TRUE) );
-        $entity_form['field_actividades_privadas_profe']['widget']['0']['value']['#access'] = 0;
-        $entity_form['field_cargo_publico']['widget']['0']['value']['#access'] = 0;
-        $entity_form['field_estado_civil']['widget']['0']['value']['#access'] = 0;
-        $entity_form['field_facebook']['widget']['0']['value']['#access'] = 0;
-        $entity_form['field_familia']['widget']['0']['value']['#access'] = 0;
-        $entity_form['field_pais']['widget']['0']['value']['#access'] = 0;
-        $entity_form['field_postulaciones_a_cargos']['widget']['0']['value']['#access'] = 0;
-        $entity_form['field_profesion']['widget']['0']['value']['#access'] = 0;
-        $entity_form['field_sitio_oficial']['widget']['0']['value']['#access'] = 0;
-        $entity_form['field_twitter']['widget']['0']['value']['#access'] = 0;
-        $callBack = [
-          'callback' => 'replicate_ddjj_form_ajax_inline_ajax', // don't forget :: when calling a class method.
-          'disable-refocus' => TRUE, //Prevent re-focusing on the triggering element.
-          'event' => 'change',
-          'wrapper' => 'edit-title-main-wrapper-inline-'.$entity_form['#bundle'], // This element is updated with this AJAX callback.
-          'progress' => [
-            'type' => 'throbber',
-            'message' => t('Asignando nombre...'),
-          ],
-        ];
-        $entity_form['field_apellidos']['widget']['0']['value']['#ajax'] = $callBack;
-        $entity_form['field_nombres']['widget']['0']['value']['#ajax'] = $callBack;
-        $entity_form['title']['#disabled'] = TRUE;
-        $entity_form['title']['#prefix'] = '<div id="edit-title-main-wrapper-inline'.$entity_form['#bundle'].'">';
-        $entity_form['title']['#suffix'] = '</div>';
-      }
-      else {
-        replicate_ddjj_form_alter($entity_form, $form_state, 'node_persona_form_ajax');
-      }
-    }
-    elseif ( $entity_form['#bundle'] == 'cargo_publico') {
-      \Drupal::logger('replicate_ddjj')->notice( "CARGO INLINE: <pre>" );
-      $entity_form['actions']['submit']['#submit'][] = 'replicate_ddjj_assign_title';
-      $submit_handlers = $form_state->getSubmitHandlers();
-      $submit_handlers[] = 'replicate_ddjj_assign_title';
-      $form_state->setSubmitHandlers($submit_handlers);
-    }
-  }
-}
-function replicate_ddjj_assign_title($form, \Drupal\Core\Form\FormStateInterface $form_state) {
-  \Drupal::logger('replicate_ddjj')->notice( "CUSTOM SUBMIT CARGO INLINE: <pre>" );
-  $node = $form_state->getFormObject()->getEntity();
-  $node->setTitle('Custom Title - ' . $node->id());
-  $node->save();
-}
-/**
-* Implements hook_form_alter().
-*/
-function replicate_ddjj_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id) {
-  if ( $form_id == 'node_persona_form' || $form_id == 'node_persona_form_ajax' ) {
+    \Drupal::logger('replicate_ddjj')->notice( "NODE FORM: <pre>".print_r($entity_form['#bundle'], TRUE) );
+    $entity_form['title']['#prefix'] = '<div id="edit-title-main-wrapper-inline-'.$entity_form['#bundle'].'">';
+    $entity_form['title']['#suffix'] = '</div>';
     $callBack = [
-      'callback' => 'replicate_ddjj_form_ajax', // don't forget :: when calling a class method.
+      'callback' => 'replicate_ddjj_form_ajax_inline',
+      'wrapper' => 'edit-title-main-wrapper-inline-'.$entity_form['#bundle'], // This element is updated with this AJAX callback.
       'disable-refocus' => TRUE, //Prevent re-focusing on the triggering element.
       'event' => 'change',
-      'wrapper' => 'edit-title-main-wrapper', // This element is updated with this AJAX callback.
       'progress' => [
         'type' => 'throbber',
         'message' => t('Asignando nombre...'),
       ],
     ];
-    if ( $form_id == 'node_persona_form_ajax' ) {
-      $callBack['callback'] = 'replicate_ddjj_form_ajax_inline';
-      //$callBack['wrapper'] = 'edit-field-persona-form-inline-entity-form-title-wrapper';
+    if ( $entity_form['#bundle'] == 'persona') {
+      //No es primera persona
+      if (count($entity_form['#parents']) > 3 ) {
+        \Drupal::logger('replicate_ddjj')->notice( "PERSONA con PADRES: <pre>".print_r($entity_form['#parents'], TRUE) );
+        unset($entity_form['field_actividades_privadas_profe']);//['widget']['0']['value']['#access'] = 0;
+        unset($entity_form['field_cargo_publico']);//['widget']['0']['value']['#access'] = 0;
+        unset($entity_form['field_estado_civil']);//['widget']['0']['value']['#access'] = 0;
+        unset($entity_form['field_facebook']);//['widget']['0']['value']['#access'] = 0;
+        unset($entity_form['field_familia']);//['widget']['0']['value']['#access'] = 0;
+        unset($entity_form['field_pais']);//['widget']['0']['value']['#access'] = 0;
+        unset($entity_form['field_postulaciones_a_cargos']);//['widget']['0']['value']['#access'] = 0;
+        unset($entity_form['field_profesion']);//['widget']['0']['value']['#access'] = 0;
+        unset($entity_form['field_sitio_oficial']);//['widget']['0']['value']['#access'] = 0;
+        unset($entity_form['field_twitter']);//['widget']['0']['value']['#access'] = 0;
+        //unset($entity_form['title']);
+
+        $callBack['wrapper'] = 'edit-title-main-wrapper-inline-ajax-'.$entity_form['#bundle'];
+        $entity_form['title']['#prefix'] = '<div id="edit-title-main-wrapper-inline-ajax-'.$entity_form['#bundle'].'">';
+        $entity_form['field_apellidos']['widget']['0']['value']['#ajax'] = $callBack;
+        $entity_form['field_nombres']['widget']['0']['value']['#ajax'] = $callBack;
+        //$entity_form['title']['#disabled'] = TRUE;
+      }
+      else {
+        $entity_form['field_apellidos']['widget']['0']['value']['#ajax'] = $callBack;
+        $entity_form['field_nombres']['widget']['0']['value']['#ajax'] = $callBack;
+      }
     }
-    $form['field_apellidos']['widget']['0']['value']['#ajax'] = $callBack;
-    $form['field_nombres']['widget']['0']['value']['#ajax'] = $callBack;
-    $form['title']['#disabled'] = TRUE;
-    $form['title']['#prefix'] = '<div id="edit-title-main-wrapper">';
-    $form['title']['#suffix'] = '</div>';
+    elseif ( $entity_form['#bundle'] == 'bien_inmueble') {
+      $entity_form['field_tipo_bien_inmueble']['widget']['#ajax'] = $callBack;
+      $entity_form['field_moneda_valor_fiscal']['widget']['#ajax'] = $callBack;
+      //$entity_form['field_valor_moneda']['widget']['0']['value']['#ajax'] = $callBack;
+    }
+    elseif ( $entity_form['#bundle'] == 'bien_mueble') {
+      $entity_form['field_tipo_bien_mueble']['widget']['#ajax'] = $callBack;
+      $entity_form['field_moneda_valor_fiscal']['widget']['#ajax'] = $callBack;
+      //$entity_form['field_valor_moneda']['widget']['0']['value']['#ajax'] = $callBack;
+    }
+    elseif ( $entity_form['#bundle'] == 'dinero') {
+      $entity_form['field_tipo_dinero']['widget']['#ajax'] = $callBack;
+      $entity_form['field_moneda_valor_fiscal']['widget']['#ajax'] = $callBack;
+      //$entity_form['field_valor_moneda']['widget']['0']['value']['#ajax'] = $callBack;
+    }
+    elseif ( $entity_form['#bundle'] == 'vinculos') {
+      $entity_form['field_vinculo']['widget']['#ajax'] = $callBack;
+      //dpm($entity_form['field_persona']);
+    }
+    elseif ( $entity_form['#bundle'] == 'actividades_privadas_profesional') {
+      $entity_form['field_ingreso']['widget'][0]['value']['#ajax'] = $callBack;
+    }
+    elseif ( $entity_form['#bundle'] == 'cargo_publico') {
+      $entity_form['field_ingreso']['widget'][0]['value']['#ajax'] = $callBack;
+    }
+    elseif ( $entity_form['#bundle'] == 'postulaciones') {
+      $entity_form['field_ano']['widget'][0]['value']['#ajax'] = $callBack;
+    }
+  }
+}
+/**
+* Implements hook_form_alter().
+*/
+function replicate_ddjj_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id) {
+  if ( $form_id == 'node_persona_form' ) {
+    if ( empty($form_state->getTriggeringElement()) ) {
+      \Drupal::logger('replicate_ddjj')->notice( "FORM ALTER PERSONA: <pre>");
+      $callBack = [
+        'callback' => 'replicate_ddjj_form_ajax', // don't forget :: when calling a class method.
+        'disable-refocus' => TRUE, //Prevent re-focusing on the triggering element.
+        'event' => 'change',
+        'wrapper' => 'edit-title-main-wrapper', // This element is updated with this AJAX callback.
+        'progress' => [
+          'type' => 'throbber',
+          'message' => t('Asignando nombre...'),
+        ],
+      ];
+      $form['field_apellidos']['widget']['0']['value']['#ajax'] = $callBack;
+      $form['field_nombres']['widget']['0']['value']['#ajax'] = $callBack;
+      //$form['title']['#disabled'] = TRUE;
+      $form['title']['#prefix'] = '<div id="edit-title-main-wrapper">';
+      $form['title']['#suffix'] = '</div>';
+    }
   }
 }
 /**
@@ -267,43 +284,91 @@ function replicate_ddjj_form_ajax(&$form, \Drupal\Core\Form\FormStateInterface $
   }
   return $form['title'];
 }
-/**
-* Implements hook_form_alter().
-*/
-function replicate_ddjj_form_ajax_inline(&$form, \Drupal\Core\Form\FormStateInterface $form_state) {
-  $form['field_persona']['widget']['form']['inline_entity_form']['title']['widget']['0']['value']['#value'] = "";
-  $values = $form_state->getUserInput()['field_persona']['form']['inline_entity_form'];
-  $apellidos = $values['field_apellidos']['0']['value'];
-  $nombres = $values['field_nombres']['0']['value'];
-  if ( !empty($apellidos) ) {
-    $form['field_persona']['widget']['form']['inline_entity_form']['title']['widget']['0']['value']['#value'] = $apellidos;
+function replicate_ddjj_get_form_object_name($bundle, $field) {
+  $eTitle = '';
+  foreach ($form_state->get('inline_entity_form') as &$widget_state) {
+    $widget_state += ['entities' => []];
+    foreach ($widget_state['entities'] as $delta => $entity_item) {
+      if ( !empty($entity_item['entity']) ) {
+        if ( $entity_item['entity']->bundle() == $bundle ) {
+          if ( $entity_item['entity']->getEntityTypeId() == 'taxonomy_term' ) {
+            $eTitle = $entity_item['entity']->get('name')->value;
+          }
+          else {
+            $eTitle = $entity_item['entity']->get('title')->value;
+          }
+        }
+      }
+    }
   }
-  if ( !empty($nombres) ) {
-    $form['field_persona']['widget']['form']['inline_entity_form']['title']['widget']['0']['value']['#value'] .= ", ".$nombres;
-  }
-  return $form['field_persona']['widget']['form']['inline_entity_form']['title'];
+  return $eTitle;
 }
-/**
-* Implements hook_form_alter().
-*/
-function replicate_ddjj_form_ajax_inline_ajax(&$form, \Drupal\Core\Form\FormStateInterface $form_state) {
-  $form['field_persona']['widget']['form']['inline_entity_form']['title']['widget']['0']['value']['#value'] = "";
-  $values = $form_state->getUserInput()['field_persona']['form']['inline_entity_form'];
-  $apellidos = $values['field_apellidos']['0']['value'];
-  $nombres = $values['field_nombres']['0']['value'];
-  if ( !empty($apellidos) ) {
-    $form['field_persona']['widget']['form']['inline_entity_form']['title']['widget']['0']['value']['#value'] = $apellidos;
+function replicate_ddjj_get_value_label($bundle, $field) {
+
+}
+//$cargo = Term::load($entity->get('field_cargos_publicos')->target_id);
+function replicate_ddjj_form_ajax_inline(&$form, \Drupal\Core\Form\FormStateInterface $form_state) {
+  $parents = $form_state->getTriggeringElement()['#array_parents'];
+  $title = array();
+  $fname = 0;
+  if ( count($parents) > 9 ) {
+    $fname = $parents[0];
+    $field = $parents[4];
+    $values = $form_state->getUserInput()[$fname]['form']['inline_entity_form'][$field]['form']['inline_entity_form'];
   }
-  if ( !empty($nombres) ) {
-    $form['field_persona']['widget']['form']['inline_entity_form']['title']['widget']['0']['value']['#value'] .= ", ".$nombres;
+  else {
+    $field = $parents[0];
+    $values = $form_state->getUserInput()[$field]['form']['inline_entity_form'];
   }
-  return $form['field_persona']['widget']['form']['inline_entity_form']['title'];
+  \Drupal::logger('replicate_ddjj')->notice( "INLINE ACTIVIDAD AJAX: <pre>".print_r($field, TRUE) );
+  $separator = '-';
+  if ( $field == 'field_actividades_privadas_profe' ) {
+    $title[0] = $values['field_actividad_principal_ambito']['target_id'];
+    $title[1] = $values['field_ingreso']['0']['value']['date'];
+  }
+  elseif ( $field == 'field_bienes_inmuebles' ) {
+    $title[0] = $form[$field]['widget']['form']['inline_entity_form']['field_tipo_bien_inmueble']['widget']['#options'][$values['field_tipo_bien_inmueble']];
+    $title[1] = $values['field_valor_moneda']['0']['value'];
+    $title[2] = $form[$field]['widget']['form']['inline_entity_form']['field_moneda_valor_fiscal']['widget']['#options'][$values['field_moneda_valor_fiscal']];
+  }
+  elseif ($field == 'field_bienes_muebles') {
+    $title[0] = $form[$field]['widget']['form']['inline_entity_form']['field_tipo_bien_mueble']['widget']['#options'][$values['field_tipo_bien_mueble']];
+    $title[1] = $values['field_valor_moneda']['0']['value'];
+    $title[2] = $form[$field]['widget']['form']['inline_entity_form']['field_moneda_valor_fiscal']['widget']['#options'][$values['field_moneda_valor_fiscal']];
+  }
+  elseif ( $field == 'field_dinero') {
+    $title[0] = $form[$field]['widget']['form']['inline_entity_form']['field_tipo_dinero']['widget']['#options'][$values['field_tipo_dinero']];
+    $title[1] = $values['field_valor_moneda']['0']['value'];
+    $title[2] = $form[$field]['widget']['form']['inline_entity_form']['field_moneda_valor_fiscal']['widget']['#options'][$values['field_moneda_valor_fiscal']];
+  }
+  elseif ( $field == 'field_persona' ){
+    $title[0] = $values['field_apellidos']['0']['value'];
+    $title[1] = $values['field_nombres']['0']['value'];
+    $separator = ', ';
+  }
+  elseif ( $field == 'field_cargo_publico') {
+    $title[0] = replicate_ddjj_get_form_object_name('cargos_publicos');
+    $title[1] = $values['field_ingreso']['0']['value']['date'];
+  }
+  elseif ( $field == 'field_postulaciones_a_cargos') {
+    $title[0] = $values['field_vinculo'];
+    $title[1] = replicate_ddjj_get_form_object_name('cargos_publicos');
+  }
+  //Results
+  if ($fname) {
+    $form[$fname]['widget']['form']['inline_entity_form'][$field]['widget']['form']['inline_entity_form']['title']['widget']['0']['value']['#value'] = implode($separator, $title);
+    return $form[$fname]['widget']['form']['inline_entity_form'][$field]['widget']['form']['inline_entity_form']['title'];
+  }
+  else {
+    $form[$field]['widget']['form']['inline_entity_form']['title']['widget']['0']['value']['#value'] = implode('-', $title);
+    return $form[$field]['widget']['form']['inline_entity_form']['title'];
+  }
 }
 /**
 * Implements hook_form_alter().
 */
 function replicate_form_in_ddjj(EntityInterface $entity, $operation){
-  \Drupal::logger('replicate_ddjj')->notice( "DDJJ REPLICATE: <pre>".print_r($entity->field_persona, TRUE) );
+  \Drupal::logger('replicate_ddjj')->notice( "DDJJ REPLICATE FORM TO DATABASE");
   //$tipos_inmuebles = $entity->field_tipo_bien_inmueble->getSetting('allowed_values');
   $fecha_declaracion = $entity->field_ano->value;
   $title = $entity->title->value;
@@ -316,42 +381,51 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
   //}
   //$departamento = $entity->field_1_departamento->value;
   //$localidad = $entity->field_1_localidad->value;
-
-  $cargo_id = $entity->field_cargos_publicos[0]->target_id;
-  //$poder = $entity->field_poder->value;
+  $cargo = Term::load($entity->get('field_cargos_publicos')->target_id);
+  $cargo_name = $cargo->getName();
+  $poder = $cargo->field_poder->value;
+  $organismo = Term::load($cargo->get('field_organismo')->target_id);
+  $organismo_name = $organismo->getName();
   //$organismo = $entity->field_1_organismo_inciso->value;
-  //$fecha_cargo = $entity->field_1_fecha_cargo->value;
+  $fecha_cargo = '2020-06-11';
 
   //$declaracion_por = $entity->field_declaracion_por->value;
   //$conyugue_nombre_completo = $entity->field_conyugue_apellidos_nombres->value;
   $url = $entity->field_url_declaracion->value;
-  print "\n\nPersona:\n";
+  $log = "\n\nPersona:\n";
   $persona = array (
     'documento' => $cedula,
     'nombre' => $nombres,
     'apellido' => $apellidos
   );
-  print_r($persona);
-  //$personaId = getPersonId($persona);
+  $log .= print_r($persona, TRUE);
+  $personaId = getPersonId($persona);
   $cargo = array (
-  //'persona_id' => $personaId,
-  'cargo' => $cargo,
+  'persona_id' => $personaId,
+  'cargo' => $cargo_name,
   'fecha' => $fecha_cargo,
-  'jurisdiccion' => $organismo,
+  'jurisdiccion' => $organismo_name,
   'poder' => $poder
   );
-  print "\n\nCargo:\n";
-  print_r($cargo);
-  return 0;
-  $cargo_id = getCargoId($cargo);
-  $cargo['cargo_id'] = $cargo_id;
-  $jurisdiccion_id = getJurisdiccionId($organismo,$poder);
-  $cargo['jurisdiccion_id'] = $jurisdiccion_id;
-  $persona_cargo_id = getPersonaCargoId($cargo);
-  $cargo['persona_cargo_id'] = $persona_cargo_id;
-  $obs = $entity->field_observaciones->value;
-  $declaracion_id = getDeclaracionId($fecha_declaracion,$persona,$cargo,$obs,$url);
-  $contenido_declaracion_id = getContenidoDeclaracionId($fecha_declaracion,$persona,$cargo,$declaracion_id);
+  $log .= "\n\nCargo:\n";
+  $log .= print_r($cargo, TRUE);
+  \Drupal::logger('replicate_ddjj')->notice( "DDJJ REPLICATE FORM: $log" );
+  $obs = '<Observaciones>';//$entity->field_observaciones->value;
+  try {
+    $cargo_id = getCargoId($cargo);
+    $cargo['cargo_id'] = $cargo_id;
+    $jurisdiccion_id = getJurisdiccionId($organismo_name,$poder);
+    $cargo['jurisdiccion_id'] = $jurisdiccion_id;
+    $persona_cargo_id = getPersonaCargoId($cargo);
+    $cargo['persona_cargo_id'] = $persona_cargo_id;
+    $declaracion_id = getDeclaracionId($fecha_declaracion,$persona,$cargo,$obs,$url);
+    $contenido_declaracion_id = getContenidoDeclaracionId($fecha_declaracion,$persona,$cargo,$declaracion_id);
+  }
+  catch (Exception $e) {
+    // Generic exception handling if something else gets thrown.
+    \Drupal::logger('replicate_ddjj')->error($e->getMessage());
+    return 0;
+  }
 
   //Borro todos los bienes en caso de que haya alguno porque igual se crean de nuevo (para no tener que actualizar uno por uno)
   delete_all_declaration_bienes($declaracion_id);
@@ -359,216 +433,77 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
   if($operation=='delete'){
     deleteDeclaracion($declaracion_id);
   }else{
+    \Drupal::logger('replicate_ddjj')->notice( "LLEGAMOS A BIENES" );
     //Inmuebles
     $tipo_bien_nombre = 'Bienes inmuebles';
-    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
-    $nombre_bien_nombre = 'lote';
-    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
-    foreach ($entity->field_bienes_inmuebles as $key => $value) {
-      $inmueble = node_load($entity->field_inmuebles[$key]->target_id);
-      $inmueble_padron = $inmueble->title->value;
-      $inmueble_propiedad = $inmueble->field__de_propiedad->value;
-      $inmueble_ubicacion = $inmueble->field_especie_y_ubicacion->value;
-      $inmueble_propio = $inmueble->field_propio_o_ganancial->value;
-      $inmueble_valor = $inmueble->field_valor_actual_estimado_en_p->value;
-      $bien = array (
-        'persona_id' => $personaId,
-        'tipo_bien_id' => $tipo_bien_id,
-        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
-        'nombre_bien_id' => $nombre_bien_id,
-        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
-        'ddjj_id' => $declaracion_id,
-        'm_valor_fiscal_id' => '0',
-        'porcentaje' => $inmueble_propiedad,
-        'valor_fiscal' => $inmueble_valor,
-        'descripcion' => "'Especie y ubicación: ".$inmueble_ubicacion." Padrón: ".$inmueble_padron."'",
-        'titular_dominio' => "'Declarante'",
-        'vinculo' => "'Titular'",
-        'created_at' => "NOW()",
-        'updated_at' => "NOW()",
-        'origen' => "'".$inmueble_propio."'"
-      );
-      createBien($bien);
+    $inmuebles = $entity->field_bienes_inmuebles->referencedEntities();
+    foreach ( $inmuebles as $inmueble ) {
+      $nombre_bien_nombre = $inmueble->field_tipo_bien_inmueble->value;
+      /*
+      field_localidad_distrito
+      field_mejoras_importe
+      field_mejoras_moneda
+      field_superficie
+      field_superficie_unidad
+      field_tipo_bien_inmueble
+      field_titulares_extra
+      */
+      createBien($declaracion_id, $fecha_cargo, $personaId, $tipo_bien_nombre, $nombre_bien_nombre, $inmueble);
     }
-
-    //Vehículos
+    //Muebles
     $tipo_bien_nombre = 'Bienes muebles';
-    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
-    $nombre_bien_nombre = 'Automotor';
-    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
-    foreach ($entity->field_vehiculos as $key => $value) {
-      $vehiculo = node_load($entity->field_vehiculos[$key]->target_id);
-      $vehiculo_marca = $vehiculo->title->value;
-      $vehiculo_propiedad = $vehiculo->field__de_propiedad->value;
-      $vehiculo_ano = $vehiculo->field_ano->value;
-      $vehiculo_matricula = $vehiculo->field_matricula->value;
-      $vehiculo_padron = $vehiculo->field_padron->value;
-      $vehiculo_propio = $vehiculo->field_propio_o_ganancial->value;
-      $vehiculo_tipo = $vehiculo->field_tipo->value;
-      $vehiculo_valor = $vehiculo->field_valor_actual_estimado_en_p->value;
-      $bien = array (
-        'persona_id' => $personaId,
-        'tipo_bien_id' => $tipo_bien_id,
-        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
-        'nombre_bien_id' => $nombre_bien_id,
-        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
-        'ddjj_id' => $declaracion_id,
-        'm_valor_fiscal_id' => '0',
-        'porcentaje' => $vehiculo_propiedad,
-        'valor_fiscal' => $vehiculo_valor,
-        'descripcion' => "'Marca: ".$vehiculo_marca." Padrón: ".$vehiculo_padron." Tipo: ".$vehiculo_tipo."'",
-        'titular_dominio' => "'Declarante'",
-        'vinculo' => "'Titular'",
-        'created_at' => "NOW()",
-        'updated_at' => "NOW()",
-        'origen' => "'".$vehiculo_propio."'"
-        );
-        createBien($bien);
+    $muebles = $entity->field_bienes_muebles->referencedEntities();
+    foreach ( $muebles as $mueble ) {
+      $nombre_bien_nombre = $mueble->field_tipo_bien_mueble->value;
+      /* Datos del vehículo, etc. */
+      createBien($declaracion_id, $fecha_cargo, $personaId, $tipo_bien_nombre, $nombre_bien_nombre, $mueble);
+    }
+    //Dinero
+    /*
+16|No especifica
+
+*/
+    $dinero = $entity->field_dinero->referencedEntities();
+    $nombre_bien_nombres = \Drupal\field\Entity\FieldStorageConfig::loadByName('node', 'field_tipo_dinero')->get('settings')['allowed_values'];
+    foreach ( $dinero as $bien ) {
+      $nombre_bien_key = $bien->field_tipo_dinero->value;
+      switch ($nombre_bien_key) {
+        case 2:
+        case 11:
+          $tipo_bien_nombre = 'Ingresos por cargo';
+        break;
+        case 12:
+        case 13:
+        case 14:
+        case 15:
+        case 18:
+        case 19:
+        case 20:
+        case 21:
+          $tipo_bien_nombre = 'Ahorros';
+        break;
+        case 22:
+        case 9:
+          $tipo_bien_nombre = 'Deudas';
+        break;
+        case 23:
+          $tipo_bien_nombre = 'Sociedades';
+        break;
+        case 6:
+        case 24:
+          $tipo_bien_nombre = 'Acreencias';
+        break;
+        case 25:
+        case 26:
+          $tipo_bien_nombre = 'Títulos y Fondos';
+        break;
+        default:
+          $tipo_bien_nombre = 'Otros ingresos';
+        break;
       }
-    //Sueldos líquidos funcionario
-    $tipo_bien_nombre = 'Ingresos cargo';
-    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
-    $nombre_bien_nombre = 'Sueldo líquido';
-    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
-    foreach ($entity->field_sueldos_liquidos_funcionar as $key => $value) {
-      $sueldo = node_load($entity->field_sueldos_liquidos_funcionar[$key]->target_id);
-      $sueldo_empleador = $sueldo->title->value;
-      $sueldo_monto = $sueldo->field_sueldo_monto->value;
-      $bien = array (
-      'persona_id' => $personaId,
-      'tipo_bien_id' => $tipo_bien_id,
-      'tipo_bien_s' => "'".$tipo_bien_nombre."'",
-      'nombre_bien_id' => $nombre_bien_id,
-      'nombre_bien_s' => "'".$nombre_bien_nombre."'",
-      'ddjj_id' => $declaracion_id,
-      'm_valor_fiscal_id' => "0",
-      'valor_fiscal' => $sueldo_monto,
-      'descripcion' => "'".$sueldo_empleador."'",
-      'titular_dominio' => "'Declarante'",
-      'vinculo' => "'Titular'",
-      'created_at' => "NOW()",
-      'updated_at' => "NOW()"
-      );
-      createBien($bien);
-    }
-
-    //Sueldos líquidos conyugue
-    $tipo_bien_nombre = 'Ingresos cargo';
-    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
-    $nombre_bien_nombre = 'Sueldo líquido (cónyugue)';
-    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
-    foreach ($entity->field_sueldos_liquidos_conyugue as $key => $value) {
-      $sueldo = node_load($entity->field_sueldos_liquidos_conyugue[$key]->target_id);
-      $sueldo_empleador = $sueldo->title->value;
-      $sueldo_monto = $sueldo->field_sueldo_monto->value;
-      $bien = array (
-      'persona_id' => $personaId,
-      'tipo_bien_id' => $tipo_bien_id,
-      'tipo_bien_s' => "'".$tipo_bien_nombre."'",
-      'nombre_bien_id' => $nombre_bien_id,
-      'nombre_bien_s' => "'".$nombre_bien_nombre."'",
-      'ddjj_id' => $declaracion_id,
-      'm_valor_fiscal_id' => "0",
-      'valor_fiscal' => $sueldo_monto,
-      'descripcion' => "'".$sueldo_empleador."'",
-      'titular_dominio' => "'Cónyugue'",
-      'vinculo' => "'Cónyugue'",
-      'created_at' => "NOW()",
-      'updated_at' => "NOW()"
-      );
-      createBien($bien);
-    }
-
-
-    //Rentas conyugue
-    $tipo_bien_nombre = 'Ingresos otros';
-    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
-    $nombre_bien_nombre = 'Renta (cónyugue)';
-    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
-    foreach ($entity->field_rentas_conyugue as $key => $value) {
-      $renta = node_load($entity->field_rentas_conyugue[$key]->target_id);
-      $renta_descripcion = $renta->title->value;
-      $renta_monto = $renta->field_monto->value;
-      $bien = array (
-        'persona_id' => $personaId,
-        'tipo_bien_id' => $tipo_bien_id,
-        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
-        'nombre_bien_id' => $nombre_bien_id,
-        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
-        'ddjj_id' => $declaracion_id,
-        'm_valor_fiscal_id' => "0",
-        'valor_fiscal' => $renta_monto,
-        'descripcion' => "'".$renta_descripcion."'",
-        'titular_dominio' => "'Cónyugue'",
-        'vinculo' => "'Cónyugue'",
-        'created_at' => "NOW()",
-        'updated_at' => "NOW()"
-      );
-      createBien($bien);
-    }
-
-    //Depósitos
-    $tipo_bien_nombre = 'Dinero ahorros';
-    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
-    $nombre_bien_nombre = 'Depósito';
-    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
-    foreach ($entity->field_depositos as $key => $value) {
-      $deposito = node_load($entity->field_depositos[$key]->target_id);
-      $deposito_banco = $deposito->title->value;
-      $deposito_moneda = $deposito->field_moneda->value;
-      $deposito_monto = $deposito->field_monto->value;
-      $deposito_cuenta = $deposito->field_no_de_cuenta->value;
-      $deposito_propio = $deposito->field_propio_o_ganancial->value;
-      $deposito_valor = $deposito->field_valor_en_pesos_->value;
-      $bien = array (
-        'persona_id' => $personaId,
-        'tipo_bien_id' => $tipo_bien_id,
-        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
-        'nombre_bien_id' => $nombre_bien_id,
-        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
-        'ddjj_id' => $declaracion_id,
-        'm_valor_fiscal_id' => $deposito_moneda,
-        'valor_fiscal' => $deposito_valor,
-        'descripcion' => "'Banco: ".$deposito_banco."'",
-        'titular_dominio' => "'Declarante'",
-        'vinculo' => "'Titular'",
-        'created_at' => "NOW()",
-        'updated_at' => "NOW()",
-        'origen' => "'".$deposito_propio."'"
-      );
-      /*\Drupal::logger('hook_post_action_test')
-    ->info("Se crea el deposito {$deposito_banco} " . __FUNCTION__);*/
-      createBien($bien);
-    }
-
-
-    //Deudas hipotecarias
-    $tipo_bien_nombre = 'Deudas';
-    $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
-    $nombre_bien_nombre = 'Deudas hipotecarias o prendarias';
-    $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
-    foreach ($entity->field_deudas_hipotecarias_o_pren as $key => $value) {
-      $deuda = node_load($entity->field_deudas_hipotecarias_o_pren[$key]->target_id);
-      $deuda_acreedor = $deuda->title->value;
-      $deuda_bien_gravado = $deuda->field_bien_gravado->value;
-      $deuda_importe_moneda_pactada = $deuda->field_importe_moneda_pac->value;
-      $deuda_saldo_pesos = $deuda->field_saldo_en_pesos_->value;
-      $bien = array (
-        'persona_id' => $personaId,
-        'tipo_bien_id' => $tipo_bien_id,
-        'tipo_bien_s' => "'".$tipo_bien_nombre."'",
-        'nombre_bien_id' => $nombre_bien_id,
-        'nombre_bien_s' => "'".$nombre_bien_nombre."'",
-        'ddjj_id' => $declaracion_id,
-        'm_valor_fiscal_id' => '0',
-        'valor_fiscal' => $deuda_saldo_pesos,
-        'descripcion' => "'Acreedor: ".$deuda_acreedor."'",
-        'titular_dominio' => "'Declarante'",
-        'vinculo' => "'Titular'",
-        'created_at' => "NOW()",
-        'updated_at' => "NOW()"
-      );
-      createBien($bien);
+      $label = $nombre_bien_nombres[$nombre_bien_key];
+      // Datos del vehículo, etc.
+      createBien($declaracion_id, $fecha_cargo, $personaId, $tipo_bien_nombre, $label, $bien);
     }
   }
 }
@@ -791,12 +726,46 @@ function getNombreBienId($tipo_bien_id,$nombre){
   return $id;
 }
 
-function createBien($bien){
-  $columnNamesArray = array_keys($bien);
-  $columnNamesString = implode(",",$columnNamesArray);
-  $valuesString = implode(",",$bien);
-  $query = "INSERT into biens (" . $columnNamesString . ") values (" . $valuesString . ")";
-  $result = Database::getConnection('replicate_ddjj', 'default')->query($query);
+function createBien($declaracion_id, $fecha, $personaId, $tipo_bien_nombre, $nombre_bien_nombre, $bien_obj){
+  $tipo_bien_id = getTipoBienId($tipo_bien_nombre);
+  $nombre_bien_id = getNombreBienId($tipo_bien_id,$nombre_bien_nombre);
+
+  $bien = array (
+    'ddjj_id' => $declaracion_id,
+    'persona_id' => $personaId,
+    'tipo_bien_id' => $tipo_bien_id,
+    'tipo_bien_s' => "'".$tipo_bien_nombre."'",
+    'nombre_bien_id' => $nombre_bien_id,
+    'nombre_bien_s' => "'".$nombre_bien_nombre."'",
+    'm_valor_fiscal_id' => $bien_obj->field_moneda_valor_fiscal->value,
+    'porcentaje' => empty($bien_obj->field_porcentaje->value) ? 100 : $bien_obj->field_porcentaje->value,
+    'valor_fiscal' => $bien_obj->field_valor_moneda->value,
+    'descripcion' => "'".$bien_obj->body->value."'",
+    'titular_dominio' => "'Declarante'",
+    'vinculo' => "'Titular'",
+    'created_at' => "NOW()",
+    'updated_at' => "NOW()",
+    'origen' => "'".$bien_obj->field_origen->value."'",
+    'destino' => "'".$bien_obj->field_destino->value."'",
+    // TODO: ARREGLAR
+    'fecha_desde' => empty($bien_obj->field_ingreso->value) ? "'".$fecha."'" : "'".$bien_obj->field_ingreso->value."'",
+    'fecha_hasta' => empty($bien_obj->field_egreso->value) ? "'".$fecha."'" : "'".$bien_obj->field_egreso->value."'",
+    'pais' => "'".$bien_obj->field_pais_mundial->value."'",
+  );
+  \Drupal::logger('replicate_ddjj')->notice( "BIENES A CREAR: ".print_r($bien, TRUE) );
+  try {
+    $columnNamesArray = array_keys($bien);
+    $columnNamesString = implode(",",$columnNamesArray);
+    $valuesString = implode(",",$bien);
+    $query = "INSERT into biens (" . $columnNamesString . ") values (" . $valuesString . ")";
+    $result = Database::getConnection('replicate_ddjj', 'default')->query($query);
+    return 1;
+  }
+  catch (Exception $e) {
+    // Generic exception handling if something else gets thrown.
+    \Drupal::logger('replicate_ddjj')->error($e->getMessage());
+    return 0;
+  }
 }
 
 
