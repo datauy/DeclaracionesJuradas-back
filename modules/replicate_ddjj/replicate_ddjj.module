@@ -284,11 +284,12 @@ function replicate_ddjj_form_ajax(&$form, \Drupal\Core\Form\FormStateInterface $
   }
   return $form['title'];
 }
-function replicate_ddjj_get_form_object_name($bundle, $field) {
+function replicate_ddjj_get_form_object_name($bundle, $field, $widgets) {
   $eTitle = '';
-  foreach ($form_state->get('inline_entity_form') as &$widget_state) {
+  foreach ($widgets as &$widget_state) {
     $widget_state += ['entities' => []];
     foreach ($widget_state['entities'] as $delta => $entity_item) {
+      dpm($delta);
       if ( !empty($entity_item['entity']) ) {
         if ( $entity_item['entity']->bundle() == $bundle ) {
           if ( $entity_item['entity']->getEntityTypeId() == 'taxonomy_term' ) {
@@ -347,12 +348,12 @@ function replicate_ddjj_form_ajax_inline(&$form, \Drupal\Core\Form\FormStateInte
     $separator = ', ';
   }
   elseif ( $field == 'field_cargo_publico') {
-    $title[0] = replicate_ddjj_get_form_object_name('cargos_publicos');
+    $title[0] = replicate_ddjj_get_form_object_name('cargos_publicos', $field, $form_state->get('inline_entity_form'));
     $title[1] = $values['field_ingreso']['0']['value']['date'];
   }
   elseif ( $field == 'field_postulaciones_a_cargos') {
-    $title[0] = $values['field_vinculo'];
-    $title[1] = replicate_ddjj_get_form_object_name('cargos_publicos');
+    $title[0] = $values['field_ano'];
+    $title[1] = replicate_ddjj_get_form_object_name('cargos_publicos', $field, $form_state->get('inline_entity_form'));
   }
   //Results
   if ($fname) {
