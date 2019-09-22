@@ -1,8 +1,6 @@
 name: Replicate DDJJ
 description: Replicate DDJJ to La Nación front_rails
 package: Custom
-dependencies:
-  - hook_post_action
 
 type: module
 core: 8.x

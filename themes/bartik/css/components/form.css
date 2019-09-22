@@ -335,3 +335,6 @@ input.form-submit:focus {
 #node-persona-form #edit-title-main-wrapper {
   display: none;
 }
+.identificador {
+  display: none;
+}
