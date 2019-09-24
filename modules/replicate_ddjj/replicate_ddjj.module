@@ -199,7 +199,6 @@ function replicate_ddjj_inline_entity_form_entity_form_alter(&$entity_form, &$fo
     elseif ( $entity_form['#bundle'] == 'bien_mueble') {
       $entity_form['field_tipo_bien_mueble']['widget']['#ajax'] = $callBack;
       $entity_form['field_moneda_valor_fiscal']['widget']['#ajax'] = $callBack;
-
       //$entity_form['field_valor_moneda']['widget']['0']['value']['#ajax'] = $callBack;
     }
     elseif ( $entity_form['#bundle'] == 'dinero') {
@@ -216,11 +215,9 @@ function replicate_ddjj_inline_entity_form_entity_form_alter(&$entity_form, &$fo
     }
     elseif ( $entity_form['#bundle'] == 'cargo_publico') {
       $entity_form['field_ingreso']['widget'][0]['value']['#ajax'] = $callBack;
-      dpm($entity_form['field_cargos_publicos']['widget']);
     }
     elseif ( $entity_form['#bundle'] == 'postulaciones') {
       $entity_form['field_ano']['widget'][0]['value']['#ajax'] = $callBack;
-      //dpm(array_keys($entity_form));//['buttons']);//['#value'] = 'Agregar postulación';
     }
   }
 }
@@ -230,13 +227,8 @@ function replicate_ddjj_inline_entity_form_entity_form_alter(&$entity_form, &$fo
 function replicate_ddjj_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id) {
   if ( $form_id == 'node_persona_form' ) {
     $form['title']['#access'] = FALSE;
-    //unset($form['title']);
   }
 }
-/**
-* Implements hook_form_alter().
-*/
-//Get object titles
 function replicate_ddjj_get_form_object_name($bundle, $field, $widgets) {
   $eTitle = '';
   foreach ($widgets as &$widget_state) {
@@ -273,7 +265,7 @@ function replicate_ddjj_form_ajax_inline(&$form, \Drupal\Core\Form\FormStateInte
     $field = $parents[0];
     $values = $form_state->getUserInput()[$field]['form']['inline_entity_form'];
   }
-  \Drupal::logger('replicate_ddjj')->notice( "INLINE AJAX: <pre>".print_r($field, TRUE) );
+  \Drupal::logger('replicate_ddjj')->notice( "INLINE ACTIVIDAD AJAX: <pre>".print_r($field, TRUE) );
   $separator = '-';
   if ( $field == 'field_actividades_privadas_profe' ) {
     $title[0] = $values['field_actividad_principal_ambito']['target_id'];
@@ -304,7 +296,7 @@ function replicate_ddjj_form_ajax_inline(&$form, \Drupal\Core\Form\FormStateInte
     $title[1] = $values['field_ingreso']['0']['value']['date'];
   }
   elseif ( $field == 'field_postulaciones_a_cargos') {
-    $title[0] = $values['field_ano']['0']['value'];
+    $title[0] = $values['field_ano'];
     $title[1] = replicate_ddjj_get_form_object_name('cargos_publicos', $field, $form_state->get('inline_entity_form'));
   }
   elseif ( $field == 'field_familia') {
