@@ -104,29 +104,6 @@ function send_ddjj_creation_to_moderator($moderator_address,$message){
       case 'persona':
         $entity->title = $entity->field_apellidos->value.', '.$entity->field_nombres->value;
         break;
-      /*case 'bien_inmueble':
-        $entity->title = "--Bien inmueble--";
-      break;
-      case 'bien_mueble':
-        $entity->title = "--Bien mueble--";
-      break;
-      case 'cargo_publico':
-        $entity->title = "--Cargo publico--";
-      break;
-      case 'titulares_extra':
-        $entity->title = "--Titular extra--";
-      break;
-      case 'dinero':
-        $entity->title = "--Dinero--";
-      break;*/
-      case 'vinculos':
-        $persona = node_load($entity->field_persona[0]->target_id);
-        \Drupal::logger('replicate_ddjj')->notice("Presave Vinculo: <pre>".$persona->title->value);
-        $entity->title = $persona->title->value."-".$entity->field_vinculo->value;
-      break;
-      default:
-        // code...
-        break;
     }
   }
 /**
@@ -239,6 +216,7 @@ function replicate_ddjj_inline_entity_form_entity_form_alter(&$entity_form, &$fo
     }
     elseif ( $entity_form['#bundle'] == 'cargo_publico') {
       $entity_form['field_ingreso']['widget'][0]['value']['#ajax'] = $callBack;
+      dpm($entity_form['field_cargos_publicos']['widget']);
     }
     elseif ( $entity_form['#bundle'] == 'postulaciones') {
       $entity_form['field_ano']['widget'][0]['value']['#ajax'] = $callBack;
@@ -251,41 +229,14 @@ function replicate_ddjj_inline_entity_form_entity_form_alter(&$entity_form, &$fo
 */
 function replicate_ddjj_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id) {
   if ( $form_id == 'node_persona_form' ) {
-    if ( empty($form_state->getTriggeringElement()) ) {
-      \Drupal::logger('replicate_ddjj')->notice( "FORM ALTER PERSONA: <pre>");
-      $callBack = [
-        'callback' => 'replicate_ddjj_form_ajax', // don't forget :: when calling a class method.
-        'disable-refocus' => TRUE, //Prevent re-focusing on the triggering element.
-        'event' => 'change',
-        'wrapper' => 'edit-title-main-wrapper', // This element is updated with this AJAX callback.
-        'progress' => [
-          'type' => 'throbber',
-          'message' => t('Asignando nombre...'),
-        ],
-      ];
-      $form['field_apellidos']['widget']['0']['value']['#ajax'] = $callBack;
-      $form['field_nombres']['widget']['0']['value']['#ajax'] = $callBack;
-      //$form['title']['#disabled'] = TRUE;
-      $form['title']['#prefix'] = '<div id="edit-title-main-wrapper">';
-      $form['title']['#suffix'] = '</div>';
-    }
+    $form['title']['#access'] = FALSE;
+    //unset($form['title']);
   }
 }
 /**
 * Implements hook_form_alter().
 */
-function replicate_ddjj_form_ajax(&$form, \Drupal\Core\Form\FormStateInterface $form_state) {
-  $form['title']['widget']['0']['value']['#value'] = "";
-  $apellidos = $form_state->getValue('field_apellidos')['0']['value'];
-  $nombres = $form_state->getValue('field_nombres')['0']['value'];
-  if ( !empty($apellidos) ) {
-    $form['title']['widget']['0']['value']['#value'] = $apellidos;
-  }
-  if ( !empty($nombres) ) {
-    $form['title']['widget']['0']['value']['#value'] .= ", ".$nombres;
-  }
-  return $form['title'];
-}
+//Get object titles
 function replicate_ddjj_get_form_object_name($bundle, $field, $widgets) {
   $eTitle = '';
   foreach ($widgets as &$widget_state) {
