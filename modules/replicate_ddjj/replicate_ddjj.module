@@ -209,6 +209,7 @@ function replicate_ddjj_inline_entity_form_entity_form_alter(&$entity_form, &$fo
     elseif ( $entity_form['#bundle'] == 'vinculos') {
       $entity_form['field_vinculo']['widget']['#ajax'] = $callBack;
       //dpm($entity_form['field_persona']);
+      $entity_form['field_persona']['widget'][0]['target_id']['#default_value'] = NULL;
     }
     elseif ( $entity_form['#bundle'] == 'actividades_privadas_profesional') {
       $entity_form['field_ingreso']['widget'][0]['value']['#ajax'] = $callBack;
@@ -298,7 +299,7 @@ function replicate_ddjj_form_ajax_inline(&$form, \Drupal\Core\Form\FormStateInte
     $title[1] = $values['field_ingreso']['0']['value']['date'];
   }
   elseif ( $field == 'field_postulaciones_a_cargos') {
-    $title[0] = $values['field_ano'];
+    $title[0] = $values['field_ano']['0']['value'];
     $title[1] = replicate_ddjj_get_form_object_name('cargos_publicos', $field, $form_state->get('inline_entity_form'));
   }
   elseif ( $field == 'field_familia') {
