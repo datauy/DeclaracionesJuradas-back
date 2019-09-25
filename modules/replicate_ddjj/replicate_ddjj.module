@@ -218,6 +218,7 @@ function replicate_ddjj_inline_entity_form_entity_form_alter(&$entity_form, &$fo
     }
     elseif ( $entity_form['#bundle'] == 'postulaciones') {
       $entity_form['field_ano']['widget'][0]['value']['#ajax'] = $callBack;
+      //dpm(array_keys($entity_form));//['buttons']);//['#value'] = 'Agregar postulación';
     }
   }
 }
@@ -229,6 +230,7 @@ function replicate_ddjj_form_alter(&$form, \Drupal\Core\Form\FormStateInterface 
     $form['title']['#access'] = FALSE;
   }
 }
+//Get object titles
 function replicate_ddjj_get_form_object_name($bundle, $field, $widgets) {
   $eTitle = '';
   foreach ($widgets as &$widget_state) {
@@ -265,7 +267,7 @@ function replicate_ddjj_form_ajax_inline(&$form, \Drupal\Core\Form\FormStateInte
     $field = $parents[0];
     $values = $form_state->getUserInput()[$field]['form']['inline_entity_form'];
   }
-  \Drupal::logger('replicate_ddjj')->notice( "INLINE ACTIVIDAD AJAX: <pre>".print_r($field, TRUE) );
+  \Drupal::logger('replicate_ddjj')->notice( "INLINE AJAX: <pre>".print_r($field, TRUE) );
   $separator = '-';
   if ( $field == 'field_actividades_privadas_profe' ) {
     $title[0] = $values['field_actividad_principal_ambito']['target_id'];
@@ -419,7 +421,7 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
       switch ($nombre_bien_key) {
         case 2:
         case 11:
-          $tipo_bien_nombre = 'Ingresos por cargo';
+          $tipo_bien_nombre = 'Ingresos cargo';
         break;
         case 12:
         case 13:
@@ -429,7 +431,7 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
         case 19:
         case 20:
         case 21:
-          $tipo_bien_nombre = 'Ahorros';
+          $tipo_bien_nombre = 'Dinero ahorros';
         break;
         case 22:
         case 9:
@@ -444,10 +446,10 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
         break;
         case 25:
         case 26:
-          $tipo_bien_nombre = 'Títulos y Fondos';
+          $tipo_bien_nombre = 'Títulos y FCI';
         break;
         default:
-          $tipo_bien_nombre = 'Otros ingresos';
+          $tipo_bien_nombre = 'Ingresos otros';
         break;
       }
       $label = $nombre_bien_nombres[$nombre_bien_key];
