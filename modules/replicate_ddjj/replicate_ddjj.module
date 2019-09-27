@@ -142,7 +142,8 @@ function replicate_ddjj_node_postupdate(EntityInterface $entity) {
 function replicate_ddjj_node_postdelete(EntityInterface $entity) {
   $id = $entity->id();
   $bundle = $entity->bundle();
-  if($bundle=="datos_del_funcionario"){
+  if($bundle=="declaracion_jurada"){
+    \Drupal::logger('replicate_ddjj')->notice('DELETING DECLARACION: '.$id);
     replicate_form_in_ddjj($entity,'delete');
   }
 }
@@ -336,14 +337,25 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
   $cargo = Term::load($entity->get('field_cargos_publicos')->target_id);
   $cargo_name = $cargo->getName();
   $poder = $cargo->field_poder->value;
-  $organismo = Term::load($cargo->get('field_organismo')->target_id);
-  $organismo_name = $organismo->getName();
-  //$organismo = $entity->field_1_organismo_inciso->value;
+  $organismo_name = '';
+  if ( $cargo->get('field_organismo')->target_id ) {
+    $organismo = Term::load($cargo->get('field_organismo')->target_id);
+    $organismo_name = $organismo->getName();
+    //$organismo = $entity->field_1_organismo_inciso->value;
+  }
   $fecha_cargo = '2020-06-11';
 
   //$declaracion_por = $entity->field_declaracion_por->value;
   //$conyugue_nombre_completo = $entity->field_conyugue_apellidos_nombres->value;
-  $url = $entity->field_url_declaracion->value;
+  $url = '';
+  /*if ( !empty($entity->field_url_declaracion->href) ){
+    \Drupal::logger('replicate_ddjj')->notice('ENTITY UPDATE CON URL');
+    $url = $entity->field_url_declaracion->href;
+  }
+  else*/if ( !empty($entity->field_archivo_de_declaracion->entity) ) {
+    $uri = $entity->field_archivo_de_declaracion->entity->getFileUri();
+    $url = file_create_url($uri);
+  }
   $log = "\n\nPersona:\n";
   $persona = array (
     'documento' => $cedula,
