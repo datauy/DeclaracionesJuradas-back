@@ -608,6 +608,8 @@ function getDeclaracionId($fecha_declaracion,$persona,$cargo,$obs,$url, $eid){
     $id = $record->id;
   }
   $ano = $fecha_declaracion;//$fecha[0];
+  $nombre_completo = $persona['nombre'] . " " . $persona['apellido'];
+  $flag_search = strtolower(str_replace(" ","-",$persona['apellido']) . "-" . str_replace(" ","-",$persona['nombre']) . "-" . $ano . "-anual");
   //$fecha = explode("-",$fecha_declaracion);
   if ( !$id ) {
     $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id FROM ddjjs where persona_id = ".$cargo['persona_id']."
@@ -619,8 +621,6 @@ function getDeclaracionId($fecha_declaracion,$persona,$cargo,$obs,$url, $eid){
     }
   }
   if( !$id ){
-    $flag_search = strtolower(str_replace(" ","-",$persona['apellido']) . "-" . str_replace(" ","-",$persona['nombre']) . "-" . $ano . "-anual");
-    $nombre_completo = $persona['nombre'] . " " . $persona['apellido'];
     $insert = Database::getConnection('replicate_ddjj', 'default')->query("insert into ddjjs (poder_id,persona_id,persona_cargo_id,funcionario,ano,clave,created_at,updated_at,status,flag_presenta,tipo_ddjj_id,flag_search,obs,url)
     values (".$cargo['poder'].",'".$cargo['persona_id']."','".$cargo['persona_cargo_id']."','".$nombre_completo."',".$ano.",'".$eid."',NOW(),NOW(),1,1,3,'".$flag_search."', '".$obs."','".$url."')");
     $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id FROM ddjjs where persona_id = ".$cargo['persona_id']."
