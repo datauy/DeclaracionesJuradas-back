@@ -4,6 +4,7 @@ use Drupal\Core\Entity\EntityInterface;
 use \Drupal\Core\Database\Database;
 use Drupal\taxonomy\Entity\Term;
 use \Drupal\Component\Utility\NestedArray;
+use  \Drupal\user\Entity\User;
 /**
  * Implements hook_mail_alter().
  */
@@ -34,78 +35,77 @@ function replicate_ddjj_mail($key, &$message, $params) {
 
 
 function send_ddjj_creation_to_moderator($moderator_address,$message){
-    $mailManager = \Drupal::service('plugin.manager.mail');
-    $module = 'replicate_ddjj';
-    $key = 'replicate_ddjj';
-    //$to = \Drupal::currentUser()->getEmail();
-    $to = $moderator_address;
-    $html = "Estimado/a moderador de DDJJ:<br/>";
-    $html .= "Se ha añadido una declaración jurada pendiente de aprobación."."<br/>";
-    $html .= "Político/a: ".$message["politico"]."<br/>";
-    $html .= "Para aprobarla, diríjase a: ".$message["url"]."<br/>";
-    $params['message'] = $html;
-    $params['node_title'] = "<Título>";
-    $params['subject'] = "Tiene una nueva declaración jurada pendiente de aprobación";
-    $langcode = \Drupal::currentUser()->getPreferredLangcode();
-    $send = true;
+  $mailManager = \Drupal::service('plugin.manager.mail');
+  $module = 'replicate_ddjj';
+  $key = 'replicate_ddjj';
+  //$to = \Drupal::currentUser()->getEmail();
+  $to = $moderator_address;
+  $html = "Estimado/a moderador de DDJJ:\n";
+  $html .= "Se ha añadido una declaración jurada pendiente de aprobación.\n";
+  $html .= "Político/a: ".$message["politico"]."\n";
+  $html .= "Para aprobarla, <a href='".$message["url"]."'>diríjase aquí</a>.\n";
+  $html .= "También puede consultar la <a href='http://ddjj-back.directoriolegislativo.org/admin/declaraciones-juradas'>página de declaraciones</a>.<br/>";
+  $params['message'] = $html;
+  $params['node_title'] = "<Título>";
+  $params['subject'] = "Tiene una nueva declaración jurada pendiente de aprobación";
+  $langcode = \Drupal::currentUser()->getPreferredLangcode();
+  $send = true;
 
-    $result = $mailManager->mail($module, $key, $to, $langcode, $params, NULL, $send);
+  foreach ( $to as $email ) {
+    $result = $mailManager->mail($module, $key, $email, $langcode, $params, NULL, $send);
     if ($result['result'] !== true) {
-      $message = "Hubo un error al enviar la creación de ddjj a ".$moderator_address;
+      $message = "Hubo un error al enviar la creación de ddjj a ".$email;
       drupal_set_message($message, 'error');
       \Drupal::logger('replicate_ddjj')->error($message);
-      return;
     }
-
-    $message = "Se ha enviado una creación de ddjj a ".$moderator_address;
+    $message = "Se ha enviado una creación de ddjj a ".$email;
     drupal_set_message($message);
     \Drupal::logger('replicate_ddjj')->notice($message);
   }
+}
 
-  function send_ddjj_creation_user($message){
-    $mailManager = \Drupal::service('plugin.manager.mail');
-    $module = 'replicate_ddjj';
-    $key = 'replicate_ddjj';
-    $to = \Drupal::currentUser()->getEmail();
-    $html = "Estimado/a:<br/>";
-    $html .= "Ha creado con éxito una declaración jurada. Cuando un moderador la apruebe será publicada."."<br/>";
-    $html .= "Político/a: ".$message["politico"]."<br/>";
-    //$html .= "Correo electrónico: ".$message["politico_email"]."<br/>";
-    $params['message'] = $html;
-    $params['node_title'] = "<titulo>";
-    $params['subject'] = "Declaración jurada creada con éxito";
-    $langcode = \Drupal::currentUser()->getPreferredLangcode();
-    $send = true;
+function send_ddjj_creation_user($message){
+  $mailManager = \Drupal::service('plugin.manager.mail');
+  $module = 'replicate_ddjj';
+  $key = 'replicate_ddjj';
+  $to = \Drupal::currentUser()->getEmail();
+  $html = "Estimado/a:<br/>";
+  $html .= "Ha creado con éxito una declaración jurada. Cuando un moderador la apruebe será publicada."."<br/>";
+  $html .= "Político/a: ".$message["politico"]."<br/>";
+  //$html .= "Correo electrónico: ".$message["politico_email"]."<br/>";
+  $params['message'] = $html;
+  $params['node_title'] = "<titulo>";
+  $params['subject'] = "Declaración jurada creada con éxito";
+  $langcode = \Drupal::currentUser()->getPreferredLangcode();
+  $send = true;
 
-    $result = $mailManager->mail($module, $key, $to, $langcode, $params, NULL, $send);
-    if ($result['result'] !== true) {
-      $message = "Hubo un error al enviar mensaje de creación de ddjj a ".$to;
-      drupal_set_message($message, 'error');
-      \Drupal::logger('replicate_ddjj')->error($message);
-      return;
-    }
-
-    $message = "Se ha enviado un mensaje de creación de ddjj a ".$to;
-    drupal_set_message($message);
-    \Drupal::logger('replicate_ddjj')->notice($message);
+  $result = $mailManager->mail($module, $key, $to, $langcode, $params, NULL, $send);
+  if ($result['result'] !== true) {
+    $message = "Hubo un error al enviar mensaje de creación de ddjj a ".$to;
+    drupal_set_message($message, 'error');
+    \Drupal::logger('replicate_ddjj')->error($message);
+    return;
   }
 
-
-  /**
-  * Implements hook_ENTITY_TYPE_presave().
-  */
-  function replicate_ddjj_node_presave(EntityInterface $entity){
-    $bundle = $entity->bundle();
-    switch ($bundle) {
-      case 'declaracion_jurada':
-        $persona = node_load($entity->field_persona[0]->target_id);
-        $entity->title = "Declaración jurada " . $persona->title->value . " - " . $entity->field_ano->value;
-        break;
-      case 'persona':
-        $entity->title = $entity->field_apellidos->value.', '.$entity->field_nombres->value;
-        break;
-    }
+  $message = "Se ha enviado un mensaje de creación de ddjj a ".$to;
+  drupal_set_message($message);
+  \Drupal::logger('replicate_ddjj')->notice($message);
+}
+/**
+* Implements hook_ENTITY_TYPE_presave().
+*/
+function replicate_ddjj_node_presave(EntityInterface $entity){
+  $bundle = $entity->bundle();
+  switch ($bundle) {
+    case 'declaracion_jurada':
+      $persona = node_load($entity->field_persona[0]->target_id);
+      $entity->title = "Declaración jurada " . $persona->title->value . " - " . $entity->field_ano->value;
+      break;
+    case 'persona':
+      $entity->title = $entity->field_apellidos->value.', '.$entity->field_nombres->value;
+      break;
   }
+}
 /**
 * Implements hook_ENTITY_TYPE_postinsert().
 */
@@ -119,7 +119,19 @@ function replicate_ddjj_node_postinsert(EntityInterface $entity) {
       'politico' => $persona->title->value,
       'url' => "http://form.ddjj.datauy.org/node/".$id."/edit",
     ];
-    send_ddjj_creation_to_moderator("ddjj@datauy.org",$message);
+
+    $ids = \Drupal::entityQuery('user')
+      ->condition('status', 1)
+      ->condition('roles', 'administrador')
+      ->execute();
+    $users = User::loadMultiple($ids);
+
+    $addrss = [];
+    foreach ($users as $user) {
+      $addrss[] = $user->getEmail();
+    }
+    \Drupal::logger('replicate_ddjj')->notice("EMAIL PARA: ".print_r($addrss, TRUE));
+    send_ddjj_creation_to_moderator($addrss,$message);
     send_ddjj_creation_user($message);
   }
 }
