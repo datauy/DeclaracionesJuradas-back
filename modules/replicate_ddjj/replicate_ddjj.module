@@ -176,7 +176,7 @@ function replicate_ddjj_inline_entity_form_entity_form_alter(&$entity_form, &$fo
         'message' => t('Asignando nombre...'),
       ],
     ];
-    \Drupal::logger('replicate_ddjj')->notice( "TTYFRM BUNDLE: <pre>".print_r($entity_form['#bundle'], TRUE) );
+    //\Drupal::logger('replicate_ddjj')->notice( "TTYFRM BUNDLE: <pre>".print_r($entity_form['#bundle'], TRUE) );
     if ( $entity_form['#bundle'] == 'persona') {
       //No es primera persona
       if (count($entity_form['#parents']) > 3 ) {
@@ -220,9 +220,8 @@ function replicate_ddjj_inline_entity_form_entity_form_alter(&$entity_form, &$fo
       //$entity_form['field_valor_moneda']['widget']['0']['value']['#ajax'] = $callBack;
     }
     elseif ( $entity_form['#bundle'] == 'vinculos') {
+      $callBack['event'] = 'change';
       $entity_form['field_vinculo']['widget']['#ajax'] = $callBack;
-      //dpm($entity_form['field_persona']);
-      $entity_form['field_persona']['widget'][0]['target_id']['#default_value'] = NULL;
     }
     elseif ( $entity_form['#bundle'] == 'actividades_privadas_profesional') {
       $entity_form['field_ingreso']['widget'][0]['value']['#ajax'] = $callBack;
@@ -258,7 +257,7 @@ function replicate_ddjj_form_ajax_inline(&$form, \Drupal\Core\Form\FormStateInte
   array_splice($parents, -3, 3);
   $parents_form = $trigger['#array_parents'];
   array_splice($parents_form, -5, 5);
-  \Drupal::logger('replicate_ddjj')->notice( "INLINE ORIGINAL PARENTS POPED: <pre>".print_r($parents, TRUE) );
+  //\Drupal::logger('replicate_ddjj')->notice( "INLINE ORIGINAL PARENTS POPED: <pre>".print_r($parents, TRUE) );
   if (substr( end($parents),  0, 5 )!= 'field' ) {
     array_splice($parents, -2, 2);
     array_splice($parents_form, -2, 2);
@@ -268,12 +267,12 @@ function replicate_ddjj_form_ajax_inline(&$form, \Drupal\Core\Form\FormStateInte
   $title = array();
   $na = new NestedArray();
   $field = end($parents);
-  \Drupal::logger('replicate_ddjj')->notice( "INLINE PARENTS: <pre>".print_r($parents, TRUE).print_r($parents_form_title, TRUE) );
+  //\Drupal::logger('replicate_ddjj')->notice( "INLINE PARENTS: <pre>".print_r($parents, TRUE).print_r($parents_form_title, TRUE) );
   $user_input = $form_state->getUserInput();
   $field_arr = array_merge($parents, ['form','inline_entity_form']);
   $values = $na->getValue($user_input, $field_arr);
   if ( $values ) {
-    \Drupal::logger('replicate_ddjj')->notice( "INLINE AJAX INPUT VALUES: <pre>".print_r($values, TRUE) );
+    //\Drupal::logger('replicate_ddjj')->notice( "INLINE AJAX INPUT VALUES: <pre>".print_r($values, TRUE) );
     $separator = '-';
     if ( $field == 'field_actividades_privadas_profe' ) {
       $title[0] = $values['field_actividad_principal_ambito']['target_id'];
@@ -317,8 +316,9 @@ function replicate_ddjj_form_ajax_inline(&$form, \Drupal\Core\Form\FormStateInte
     }
     $na->setValue($form, $parents_form_title_value, implode($separator, $title));
     $title_obj = $na->getValue($form, $parents_form_title);
+    //dpm($title_obj);
 
-    \Drupal::logger('replicate_ddjj')->notice( "INLINE TITLE: <pre>".print_r($title, TRUE) );
+    //\Drupal::logger('replicate_ddjj')->notice( "INLINE TITLE: <pre>".print_r(implode($separator, $title), TRUE) );
     return $title_obj;
   }
   else {
@@ -366,9 +366,9 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
   //$localidad = $entity->field_1_localidad->value;
   $cargo = Term::load($entity->get('field_cargos_publicos')->target_id);
   $cargo_name = $cargo->getName();
-  $poder = $cargo->field_poder->value;
+  $poder = $entity->field_poder->value;
   $organismo_name = '';
-  if ( $cargo->get('field_organismo')->target_id ) {
+  if ( $entity->get('field_organismo')->target_id ) {
     $organismo = Term::load($cargo->get('field_organismo')->target_id);
     $organismo_name = $organismo->getName();
     //$organismo = $entity->field_1_organismo_inciso->value;
