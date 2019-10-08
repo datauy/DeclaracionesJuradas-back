@@ -173,11 +173,12 @@ function replicate_ddjj_inline_entity_form_entity_form_alter(&$entity_form, &$fo
       'event' => 'focusout',
       'progress' => [
         'type' => 'throbber',
-        'message' => t('Asignando nombre...'),
+        'message' => t('ESPERE!... Asignando identificador'),
       ],
     ];
     //\Drupal::logger('replicate_ddjj')->notice( "TTYFRM BUNDLE: <pre>".print_r($entity_form['#bundle'], TRUE) );
     if ( $entity_form['#bundle'] == 'persona') {
+      $callBack['event'] = 'change';
       //No es primera persona
       if (count($entity_form['#parents']) > 3 ) {
         \Drupal::logger('replicate_ddjj')->notice( "PERSONA con PADRES: <pre>".print_r($entity_form['#parents'], TRUE) );
@@ -222,12 +223,12 @@ function replicate_ddjj_inline_entity_form_entity_form_alter(&$entity_form, &$fo
     elseif ( $entity_form['#bundle'] == 'vinculos') {
       $callBack['event'] = 'change';
       $entity_form['field_vinculo']['widget']['#ajax'] = $callBack;
-      if ( isset($entity_form['field_persona']['widget']['entities'][0]) ) {
+      /*if ( isset($entity_form['field_persona']['widget']['entities'][0]) ) {
         dd($entity_form['field_persona']['widget']['entities']);
         //unset($entity_form['field_persona']['widget']['entities'][0]);
       }
       //dd( $entity_form['field_persona'] );
-      /*foreach ($entity_form['field_persona']['widget'] as $key => $value) {
+      foreach ($entity_form['field_persona']['widget'] as $key => $value) {
         // code...
         $entity_form['field_persona']['widget'][$key]['target_id']['#default_value'] = NULL;
       }*/
