@@ -98,6 +98,7 @@ function replicate_ddjj_node_presave(EntityInterface $entity){
   $bundle = $entity->bundle();
   switch ($bundle) {
     case 'declaracion_jurada':
+      \Drupal::logger('replicate_ddjj')->notice( "DECLA (PERSONA, ID): ".$entity->field_persona[0]->target_id.', '.$entity->id() );
       $persona = node_load($entity->field_persona[0]->target_id);
       $entity->title = "Declaración jurada " . $persona->title->value . " - " . $entity->field_ano->value;
       break;
@@ -181,7 +182,6 @@ function replicate_ddjj_inline_entity_form_entity_form_alter(&$entity_form, &$fo
       $callBack['event'] = 'change';
       //No es primera persona
       if (count($entity_form['#parents']) > 3 ) {
-        \Drupal::logger('replicate_ddjj')->notice( "PERSONA con PADRES: <pre>".print_r($entity_form['#parents'], TRUE) );
         unset($entity_form['field_actividades_privadas_profe']);//['widget']['0']['value']['#access'] = 0;
         unset($entity_form['field_cargo_publico']);//['widget']['0']['value']['#access'] = 0;
         unset($entity_form['field_estado_civil']);//['widget']['0']['value']['#access'] = 0;
@@ -269,7 +269,6 @@ function replicate_ddjj_form_ajax_inline(&$form, \Drupal\Core\Form\FormStateInte
   array_splice($parents, -3, 3);
   $parents_form = $trigger['#array_parents'];
   array_splice($parents_form, -5, 5);
-  \Drupal::logger('replicate_ddjj')->notice( "INLINE ORIGINAL PARENTS POPED: <pre>".print_r($parents, TRUE) );
   while( substr( end($parents),  0, 5 )!= 'field' ) {
     array_splice($parents, -1, 1);
     array_splice($parents_form, -1, 1);
@@ -279,12 +278,10 @@ function replicate_ddjj_form_ajax_inline(&$form, \Drupal\Core\Form\FormStateInte
   $title = array();
   $na = new NestedArray();
   $field = end($parents);
-  \Drupal::logger('replicate_ddjj')->notice( "INLINE PARENTS: <pre>".print_r($parents, TRUE).print_r($parents_form_title, TRUE) );
   $user_input = $form_state->getUserInput();
   $field_arr = array_merge($parents, ['form','inline_entity_form']);
   $values = $na->getValue($user_input, $field_arr);
   if ( $values ) {
-    \Drupal::logger('replicate_ddjj')->notice( "INLINE AJAX INPUT VALUES: <pre>".print_r($values, TRUE) );
     $separator = '-';
     if ( $field == 'field_actividades_privadas_profe' ) {
       $title[0] = $values['field_sector']['target_id'];
@@ -366,7 +363,6 @@ function replicate_ddjj_get_form_object_name($bundle, $widgets) {
 * Implements hook_form_alter().
 */
 function replicate_form_in_ddjj(EntityInterface $entity, $operation){
-  \Drupal::logger('replicate_ddjj')->notice( "DDJJ REPLICATE FORM TO DATABASE: ".$entity->id());
   //$tipos_inmuebles = $entity->field_tipo_bien_inmueble->getSetting('allowed_values');
   $fecha_declaracion = $entity->field_ano->value;
   $title = $entity->title->value;
@@ -382,9 +378,15 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
   $cargo = Term::load($entity->get('field_cargos_publicos')->target_id);
   $cargo_name = $cargo->getName();
   $poder = $entity->field_poder->value;
+  if ( !$poder ) {
+    $poder = $cargo->field_poder->value;
+    if ( !$poder ) {
+      \Drupal::logger('replicate_ddjj')->notice( "DDJJ REPLICATE PODER VACÍO: ".$entity->id() );
+    }
+  }
   $organismo_name = '';
   if ( $entity->get('field_organismo')->target_id ) {
-    $organismo = Term::load($cargo->get('field_organismo')->target_id);
+    $organismo = Term::load($entity->get('field_organismo')->target_id);
     $organismo_name = $organismo->getName();
     //$organismo = $entity->field_1_organismo_inciso->value;
   }
@@ -426,11 +428,15 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
   \Drupal::logger('replicate_ddjj')->notice( "DDJJ REPLICATE FORM: $log" );
   $obs = '<Observaciones>';//$entity->field_observaciones->value;
   try {
-    $cargo_id = getCargoId($cargo);
-    $cargo['cargo_id'] = $cargo_id;
-    $jurisdiccion_id = getJurisdiccionId($organismo_name,$poder);
-    $cargo['jurisdiccion_id'] = $jurisdiccion_id;
-    $persona_cargo_id = getPersonaCargoId($cargo);
+    $cargo['jurisdiccion_id'] = getJurisdiccionId($organismo_name,$poder);
+    $cargo['cargo_id'] = getCargoId($cargo);
+    if ( $clave = datauy_exists_decla($entity->id()) ) {
+      $persona_cargo_id = getPersonaCargoId4Key($cargo, $clave);
+    }
+    else {
+      $persona_cargo_id = getPersonaCargoId($cargo);
+    }
+    $jurisdiccion_id =
     $cargo['persona_cargo_id'] = $persona_cargo_id;
     $declaracion_id = getDeclaracionId($fecha_declaracion,$persona,$cargo,$obs,$url, $entity->id());
     $contenido_declaracion_id = getContenidoDeclaracionId($fecha_declaracion,$persona,$cargo,$declaracion_id);
@@ -447,7 +453,6 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
   if($operation=='delete'){
     deleteDeclaracion($declaracion_id);
   }else{
-    \Drupal::logger('replicate_ddjj')->notice( "LLEGAMOS A BIENES" );
     //Inmuebles
     $tipo_bien_nombre = 'Bienes inmuebles';
     $inmuebles = $entity->field_bienes_inmuebles->referencedEntities();
@@ -521,7 +526,18 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
     }
   }
 }
-
+/**
+*Check DDJJ by Drupal eid
+*/
+function datauy_exists_decla($eid) {
+  $id = 0;
+  $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id FROM ddjjs where clave = ".$eid);
+  foreach ($result as $record) {
+    // Do something with each $record
+    $id = $record->id;
+  }
+  return $id;
+}
 //Chequea si existe la persona. Si no existe, la crea. Devuelve id de persona.
 function getPersonId($persona){
   $id = "no encontrado";
@@ -625,15 +641,23 @@ function getPersonaCargoId($cargo){
   return $id;
 }
 
-
-//Chequea si existe la declaración jurada para la persona. Si no existe, la crea. Devuelve id de ddjj.
-function getDeclaracionId($fecha_declaracion,$persona,$cargo,$obs,$url, $eid){
-  $id = 0;
-  $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id FROM ddjjs where clave = ".$eid);
-  foreach ($result as $record) {
-    // Do something with each $record
-    $id = $record->id;
+function getPersonaCargoId4Key($cargo, $clave) {
+  //Si cambia el cargo borramos el anterior
+  $checking = "SELECT persona_cargo_id FROM ddjjs WHERE id = $clave";
+  $pc_id_last = Database::getConnection('replicate_ddjj', 'default')->query($checking)[0]->id;
+  $pc_id_new = getPersonaCargoId($cargo);
+  // TODO: Booramos anterior porque está por la decla? y pasamos el nuevo
+  if ( $pc_id_last != $pc_id_new ) {
+    $deleting = "DELETE FROM persona_cargo WHERE id = $pc_id_last";
+    Database::getConnection('replicate_ddjj', 'default')->query($checking);
+    //Chequea si existe la declaración jurada para la persona. Si no existe, la crea. Devuelve id de ddjj.
+    \Drupal::logger('replicate_ddjj')->notice( "Actualizamos!!! DELETING: ".$pc_id_last );
   }
+  return $pc_id_new;
+}
+
+function getDeclaracionId($fecha_declaracion,$persona,$cargo,$obs,$url, $eid){
+  $id = datauy_exists_decla($eid);
   $ano = $fecha_declaracion;//$fecha[0];
   $nombre_completo = $persona['nombre'] . " " . $persona['apellido'];
   $flag_search = strtolower(str_replace(" ","-",$persona['apellido']) . "-" . str_replace(" ","-",$persona['nombre']) . "-" . $ano . "-anual");
@@ -663,7 +687,6 @@ function getDeclaracionId($fecha_declaracion,$persona,$cargo,$obs,$url, $eid){
     $query = "update ddjjs set poder_id = ".$cargo['poder'].", persona_id = ".$cargo['persona_id'].", persona_cargo_id = ".$cargo['persona_cargo_id'].",
     funcionario = '".$nombre_completo."', ano = ".$ano.", clave = '".$eid."', updated_at = NOW(), flag_search = '".$flag_search."', obs = '".$obs."', url = '".$url."'
     where id = ".$id.';';
-    \Drupal::logger('replicate_ddjj')->notice( "Actualizamos!!! DECLARACION: ".$query );
     $insert = Database::getConnection('replicate_ddjj', 'default')->query($query);
   }
   return $id;
@@ -781,7 +804,6 @@ function createBien($declaracion_id, $fecha, $personaId, $tipo_bien_nombre, $nom
     'fecha_hasta' => empty($bien_obj->field_egreso->value) ? "'".$fecha."'" : "'".$bien_obj->field_egreso->value."'",
     'pais' => "'".$bien_obj->field_pais_mundial->value."'",
   );
-  \Drupal::logger('replicate_ddjj')->notice( "BIENES A CREAR: ".print_r($bien, TRUE) );
   try {
     $columnNamesArray = array_keys($bien);
     $columnNamesString = implode(",",$columnNamesArray);
