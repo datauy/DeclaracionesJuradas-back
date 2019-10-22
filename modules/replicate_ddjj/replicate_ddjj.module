@@ -436,10 +436,8 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
     else {
       $persona_cargo_id = getPersonaCargoId($cargo);
     }
-    $jurisdiccion_id =
     $cargo['persona_cargo_id'] = $persona_cargo_id;
     $declaracion_id = getDeclaracionId($fecha_declaracion,$persona,$cargo,$obs,$url, $entity->id());
-    $contenido_declaracion_id = getContenidoDeclaracionId($fecha_declaracion,$persona,$cargo,$declaracion_id);
   }
   catch (Exception $e) {
     // Generic exception handling if something else gets thrown.
@@ -453,6 +451,7 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
   if($operation=='delete'){
     deleteDeclaracion($declaracion_id);
   }else{
+    $biens = array();
     //Inmuebles
     $tipo_bien_nombre = 'Bienes inmuebles';
     $inmuebles = $entity->field_bienes_inmuebles->referencedEntities();
@@ -467,6 +466,8 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
       field_tipo_bien_inmueble
       field_titulares_extra
       */
+      if (!in_array($nombre_bien_nombre, $biens) )
+        $biens[] = $nombre_bien_nombre;
       createBien($declaracion_id, $fecha_cargo, $personaId, $tipo_bien_nombre, $nombre_bien_nombre, $inmueble);
     }
     //Muebles
@@ -475,6 +476,8 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
     foreach ( $muebles as $mueble ) {
       $nombre_bien_nombre = $mueble->field_tipo_bien_mueble->value;
       /* Datos del vehículo, etc. */
+      if (!in_array($nombre_bien_nombre, $biens) )
+        $biens[] = $nombre_bien_nombre;
       createBien($declaracion_id, $fecha_cargo, $personaId, $tipo_bien_nombre, $nombre_bien_nombre, $mueble);
     }
     //Dinero
@@ -521,9 +524,12 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
         break;
       }
       $label = $nombre_bien_nombres[$nombre_bien_key];
+      if (!in_array($label, $biens) )
+        $biens[] = $label;
       // Datos del vehículo, etc.
       createBien($declaracion_id, $fecha_cargo, $personaId, $tipo_bien_nombre, $label, $bien);
     }
+    $contenido_declaracion_id = getContenidoDeclaracionId($fecha_declaracion,$persona,$cargo,$declaracion_id, $biens);
   }
 }
 /**
@@ -694,7 +700,7 @@ function getDeclaracionId($fecha_declaracion,$persona,$cargo,$obs,$url, $eid){
 
 
 //Chequea si existe la fila en la tabla contenido_ddjjs. Si no existe, la crea. Devuelve id de contenido_ddjjs.
-function getContenidoDeclaracionId($fecha_declaracion,$persona,$cargo,$declaracion_id){
+function getContenidoDeclaracionId($fecha_declaracion,$persona,$cargo,$declaracion_id, $biens){
   //$fecha = explode("-",$fecha_declaracion);
   $ano = $fecha_declaracion;//$fecha[0];
   $result = Database::getConnection('replicate_ddjj', 'default')->query("SELECT id FROM contenido_ddjjs where persona_id = ".$cargo['persona_id']."
@@ -707,7 +713,7 @@ function getContenidoDeclaracionId($fecha_declaracion,$persona,$cargo,$declaraci
   }
   if($id=="no encontrado"){
     $nombre_completo = $persona['nombre'] . " " . $persona['apellido'];
-    $contenido = implode(" ",$persona)." ".implode(" ",$cargo);
+    $contenido = implode(" ",$persona)." ".implode(" ",$cargo)." ".implode(" ",$biens);
     $insert = Database::getConnection('replicate_ddjj', 'default')->query("insert into contenido_ddjjs (poder_id,persona_id,cargo_id,persona_str,ddjj_ano,created_at,updated_at,cargo_str,contenido,ddjj_id)
     values (".$cargo['poder'].",'".$cargo['persona_id']."','".$cargo['cargo_id']."','".$nombre_completo."',".$ano.",NOW(),NOW(),
     '".$cargo['cargo']."','".$contenido."',".$declaracion_id.")");
