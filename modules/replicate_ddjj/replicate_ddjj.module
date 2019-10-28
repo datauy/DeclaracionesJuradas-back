@@ -431,9 +431,11 @@ function replicate_form_in_ddjj(EntityInterface $entity, $operation){
     $cargo['jurisdiccion_id'] = getJurisdiccionId($organismo_name,$poder);
     $cargo['cargo_id'] = getCargoId($cargo);
     if ( $clave = datauy_exists_decla($entity->id()) ) {
+      \Drupal::logger('replicate_ddjj')->notice( "DDJJ REPLICATE FORM Cargo con decla: ".print_r($cargo, true) );
       $persona_cargo_id = getPersonaCargoId4Key($cargo, $clave);
     }
     else {
+      \Drupal::logger('replicate_ddjj')->notice( "DDJJ REPLICATE FORM Cargo persona sin decla: ".print_r($cargo, true) );
       $persona_cargo_id = getPersonaCargoId($cargo);
     }
     $cargo['persona_cargo_id'] = $persona_cargo_id;
@@ -650,12 +652,18 @@ function getPersonaCargoId($cargo){
 function getPersonaCargoId4Key($cargo, $clave) {
   //Si cambia el cargo borramos el anterior
   $checking = "SELECT persona_cargo_id FROM ddjjs WHERE id = $clave";
-  $pc_id_last = Database::getConnection('replicate_ddjj', 'default')->query($checking)[0]->id;
+  \Drupal::logger('replicate_ddjj')->notice( "Cargo query: ".$checking );
+  $result_last = Database::getConnection('replicate_ddjj', 'default')->query($checking);
+  foreach ($result_last as $record) {
+    $pc_id_last = $record->persona_cargo_id;
+  }
+  //dpm($pc_id_last);
   $pc_id_new = getPersonaCargoId($cargo);
+  \Drupal::logger('replicate_ddjj')->notice( "Cargo new: ".$pc_id_new );
   // TODO: Booramos anterior porque está por la decla? y pasamos el nuevo
   if ( $pc_id_last != $pc_id_new ) {
-    $deleting = "DELETE FROM persona_cargo WHERE id = $pc_id_last";
-    Database::getConnection('replicate_ddjj', 'default')->query($checking);
+    $deleting = "DELETE FROM persona_cargos WHERE id = $pc_id_last";
+    Database::getConnection('replicate_ddjj', 'default')->query($deleting);
     //Chequea si existe la declaración jurada para la persona. Si no existe, la crea. Devuelve id de ddjj.
     \Drupal::logger('replicate_ddjj')->notice( "Actualizamos!!! DELETING: ".$pc_id_last );
   }
@@ -693,6 +701,7 @@ function getDeclaracionId($fecha_declaracion,$persona,$cargo,$obs,$url, $eid){
     $query = "update ddjjs set poder_id = ".$cargo['poder'].", persona_id = ".$cargo['persona_id'].", persona_cargo_id = ".$cargo['persona_cargo_id'].",
     funcionario = '".$nombre_completo."', ano = ".$ano.", clave = '".$eid."', updated_at = NOW(), flag_search = '".$flag_search."', obs = '".$obs."', url = '".$url."'
     where id = ".$id.';';
+    \Drupal::logger('replicate_ddjj')->notice( "Actualizamos!!! ".$query );
     $insert = Database::getConnection('replicate_ddjj', 'default')->query($query);
   }
   return $id;
